@@ -49,8 +49,25 @@ from pydantic import BaseModel
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from environment import GridEnvironment, ACTION_LABELS
-from agent import DQLAgent
-from training.train import DEFAULT_CONFIG
+from agent import DQLAgent, A3CAgent
+
+# Training config
+DEFAULT_CONFIG = {
+    "max_episodes": 2000,
+    "grid_size": 15,
+    "obstacle_ratio": 0.15,
+    "learning_rate": 0.001,
+    "gamma": 0.95,
+    "random_maps": True,
+    "max_steps": 500,
+    "epsilon_start": 1.0,
+    "epsilon_min": 0.01,
+    "epsilon_decay": 0.995,
+    "batch_size": 32,
+    "buffer_capacity": 10000,
+    "target_update": 10,
+    "hidden_size": 256,
+}
 
 # ─── FastAPI ──────────────────────────────────────────────────────────────────
 
@@ -219,8 +236,14 @@ async def get_models():
                     available_models.append({"key": f, "name": f"PPO ({f})", "type": "PPO"})
             elif f.endswith(".pth"):
                 key = f.replace(".pth", "")
-                name = f"DQN ({key})"
-                available_models.append({"key": key, "name": name, "type": "DQN"})
+                # Determine model type from filename
+                if "a3c" in key.lower():
+                    model_type = "A3C"
+                    name = f"A3C ({key})"
+                else:
+                    model_type = "DQN"
+                    name = f"DQN ({key})"
+                available_models.append({"key": key, "name": name, "type": model_type})
                 
     # Eger hic PPO model tespit edilemediyse varsayilan olarak listele
     if not any(m["type"] == "PPO" for m in available_models):
@@ -253,8 +276,22 @@ async def select_model(req: SelectModelRequest):
             
         MODEL_PATH = new_path
         IS_PPO = os.path.exists(os.path.join(MODEL_PATH, "policy.pth")) or "ppo" in MODEL_PATH.lower()
-        
-        if IS_PPO:
+        IS_A3C = "a3c" in MODEL_PATH.lower()
+
+        if IS_A3C:
+            print(f"[DYNAMIC CHANGE] A3C modeline geçiliyor: {MODEL_PATH}")
+            checkpoint = torch.load(MODEL_PATH, map_location="cpu", weights_only=False)
+            config = checkpoint.get("config", {})
+            state_size = config.get("state_size", 16)
+            action_size = config.get("action_size", 4)
+
+            env = GridEnvironment(size=DEFAULT_SIZE, random_maps=True, state_size=state_size)
+            agent = A3CAgent(state_size=state_size, action_size=action_size)
+            agent.network.load_state_dict(checkpoint["network_state"])
+            agent.episode_count = checkpoint.get("episode_count", 0)
+            agent.total_steps = checkpoint.get("total_steps", 0)
+            print(f"[DYNAMIC CHANGE] A3C model yüklendi! (Episodes: {agent.episode_count})")
+        elif IS_PPO:
             PPO_VIEW_RADIUS = get_model_view_radius(MODEL_PATH)
             print(f"[DYNAMIC CHANGE] PPO modeline geçiliyor: {MODEL_PATH} (View Radius: {PPO_VIEW_RADIUS})")
             env = GridEnvironment(size=DEFAULT_SIZE, random_maps=True, state_size=102)

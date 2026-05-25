@@ -1,0 +1,49 @@
+{
+  "episodes": 20000,
+  "total_steps": 3726767,
+  "avg_reward": 176.8034920000009,
+  "max_reward": 181.38150000000093,
+  "config": {
+    "grid_size": 15,
+    "random_maps": true,
+    "max_episodes": 20000,
+    "max_steps": 300,
+    "num_workers": 4,
+    "state_size": 16,
+    "action_size": 4,
+    "hidden_size": 256,
+    "learning_rate": 0.0001,
+    "gamma": 0.99,
+    "entropy_coeff": 0.01,
+    "curriculum": [
+      {
+        "obstacle_ratio": 0.05,
+        "min_path": 3,
+        "episodes": 2000,
+        "name": "Easy"
+      },
+      {
+        "obstacle_ratio": 0.15,
+        "min_path": 8,
+        "episodes": 4000,
+        "name": "Medium"
+      },
+      {
+        "obstacle_ratio": 0.22,
+        "min_path": 12,
+        "episodes": 6000,
+        "name": "Hard"
+      },
+      {
+        "obstacle_ratio": 0.3,
+        "min_path": 15,
+        "episodes": 8000,
+        "name": "VeryHard"
+      }
+    ],
+    "save_every": 500,
+    "model_path": "models/a3c_model_v1.pth",
+    "stats_path": "models/training_stats_a3c_v1.json"
+  },
+  "training_time_hours": 0.6406146480639776
+}
