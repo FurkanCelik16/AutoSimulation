@@ -1,0 +1,53 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+.eggs/
+venv/
+.venv/
+env/
+
+# Node
+node_modules/
+dist/
+.next/
+
+# Env dosyaları
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Loglar
+*.log
+train_log.txt
+training.log
+
+# Ara checkpoint modelleri — sadece final/best modeller commit'lenir
+backend/models/*_ep*.pth
+otonomModel/models/*_ep*.pth
+
+# Claude internal
+.claude/
+
+# Test/debug scriptleri
+test_*.py
+*_FIX.md
+*_SUMMARY.md
