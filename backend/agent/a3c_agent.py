@@ -75,6 +75,7 @@ class A3CAgent:
         # Statistics
         self.episode_count = 0
         self.total_steps = 0
+        self.epsilon = 0.0  # A3C is deterministic (no exploration decay like DQN)
         self.lock = threading.Lock()
 
     def select_action(self, state: np.ndarray):

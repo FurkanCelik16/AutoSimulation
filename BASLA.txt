@@ -1,0 +1,83 @@
+╔════════════════════════════════════════════════════════════════╗
+║           AutoSimulation - Hızlı Başlangıç Kılavuzu            ║
+╚════════════════════════════════════════════════════════════════╝
+
+📋 İLK KURULUM (sadece ilk defa):
+═════════════════════════════════════════════════════════════════
+
+1. Backend venv'ini kur:
+   cd backend
+   python -m venv venv
+   .\venv\Scripts\activate.bat
+   pip install -r requirements.txt (eğer varsa)
+   deactivate
+
+2. Frontend dependencies'i kur:
+   cd frontend
+   npm install
+
+3. .env dosyası oluştur (frontend klasöründe):
+   VITE_API_URL=http://localhost:8000
+   VITE_WS_URL=ws://localhost:8000/ws/simulate
+   VITE_MODEL_API_URL=http://localhost:8000
+
+═════════════════════════════════════════════════════════════════
+
+▶️ BAŞLATMAK İÇİN (her zaman):
+═════════════════════════════════════════════════════════════════
+
+Dosya Gezgini'nden:
+  → START.bat dosyasını ÇİFT TIKLA
+
+Veya PowerShell'den:
+  → .\START.bat
+
+Bekleme: 3-5 saniye içinde 2 terminal penceresi açılacak
+
+═════════════════════════════════════════════════════════════════
+
+🌐 TARAYICI:
+═════════════════════════════════════════════════════════════════
+
+Tarayıcıda aç: http://localhost:5173
+
+Backend otomatik açılıyor:
+  - API: http://localhost:8000
+  - WebSocket: ws://localhost:8000/ws/simulate
+
+═════════════════════════════════════════════════════════════════
+
+⏹️ DURDURMAK İÇİN:
+═════════════════════════════════════════════════════════════════
+
+Seçenek 1 (Önerilen):
+  - Her terminal penceresinde Ctrl+C basın
+
+Seçenek 2 (Hızlı):
+  - STOP.bat dosyasını çalıştır (tüm processler silinir)
+
+═════════════════════════════════════════════════════════════════
+
+🔧 SORUN GIDERME:
+═════════════════════════════════════════════════════════════════
+
+Problem: "Port 8000 already in use"
+Çözüm: STOP.bat çalıştır, 10 saniye bekle, START.bat'ı tekrar çalıştır
+
+Problem: "npm: command not found"
+Çözüm: Node.js kurunuz (https://nodejs.org/)
+
+Problem: "python: command not found"
+Çözüm: Python 3.10+ kurunuz ve PATH'e ekleyin
+
+═════════════════════════════════════════════════════════════════
+
+💡 İPUÇLARı:
+═════════════════════════════════════════════════════════════════
+
+✓ Her iki pencereyi de açık tutun
+✓ Terminal pencerelerini kapatırsa process'ler çalışmaya devam eder
+✓ Backend'de model load hatası görürseniz console'da kontrol edin
+✓ Frontend'de WebSocket hatası görürseniz backend'in çalıştığını kontrol edin
+
+═════════════════════════════════════════════════════════════════
