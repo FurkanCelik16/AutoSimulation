@@ -115,6 +115,12 @@ def get_model_view_radius(model_path: str) -> int:
 
 PPO_VIEW_RADIUS = get_model_view_radius(MODEL_PATH)
 
+# --- VERSION STAMP ---
+print("=" * 60)
+print("[INIT] A3C v8: SAF RL (state_size=94) + PPO-benzeri shield AKTIF")
+print("[INIT] Eger bu satiri gormediysen backend eski kod calistiriyor!")
+print("=" * 60)
+
 if IS_PPO:
     print(f"[INIT] PPO Hardcore Model tespit edildi! Model: {MODEL_PATH}")
     env = GridEnvironment(size=DEFAULT_SIZE, random_maps=True, state_size=102)
@@ -124,32 +130,39 @@ if IS_PPO:
     except Exception as _load_err:
         print(f"[WARN] PPO model yüklenemedi: {_load_err}")
 else:
-    print(f"[INIT] DQN Model yükleniyor: {MODEL_PATH}")
-    # Checkpoint'i yükleyip içindeki gizli katman ve durum vektörü boyutlarını dinamik oku
-    state_size = 16  # Varsayılan
-    hidden_size = 256  # Varsayılan
-    action_size = 4  # Varsayılan
-    
+    print(f"[INIT] DQN/A3C Model yükleniyor: {MODEL_PATH}")
+    state_size = 16
+    hidden_size = 256
+    action_size = 4
+
     try:
         checkpoint = torch.load(MODEL_PATH, map_location="cpu", weights_only=False)
         if "config" in checkpoint:
             state_size = checkpoint["config"].get("state_size", state_size)
             hidden_size = checkpoint["config"].get("hidden_size", hidden_size)
             action_size = checkpoint["config"].get("action_size", action_size)
-            print(f"[INIT] Checkpoint konfigürasyonu okundu: state_size={state_size}, hidden_size={hidden_size}, action_size={action_size}")
+            print(f"[INIT] Checkpoint: state_size={state_size}, hidden={hidden_size}, action={action_size}")
     except Exception as _read_err:
-        print(f"[WARN] Checkpoint okunamadı, varsayılan boyutlar kullanılacak: {_read_err}")
-        
-    env = GridEnvironment(size=DEFAULT_SIZE, random_maps=True, state_size=state_size)
-    agent = DQLAgent(
-        state_size=state_size,
-        action_size=action_size,
-        hidden_size=hidden_size
-    )
-    try:
-        agent.load(MODEL_PATH)
-    except Exception as _load_err:
-        print(f"[WARN] DQN model yüklenemedi, yeni ağırlıklarla başlanıyor: {_load_err}")
+        print(f"[WARN] Checkpoint okunamadı: {_read_err}")
+
+    IS_A3C_INIT = "a3c" in MODEL_PATH.lower()
+    env_state_size = state_size if state_size in (12, 16) else 16
+    env = GridEnvironment(size=DEFAULT_SIZE, random_maps=True, state_size=env_state_size)
+    if IS_A3C_INIT:
+        agent = A3CAgent(state_size=state_size, action_size=action_size, hidden_size=hidden_size)
+        try:
+            agent.network.load_state_dict(checkpoint["network_state"])
+            agent.episode_count = checkpoint.get("episode_count", 0)
+            agent.total_steps = checkpoint.get("total_steps", 0)
+            print(f"[INIT] A3C yuklendi (state_size={state_size})")
+        except Exception as e:
+            print(f"[WARN] A3C yuklenemedi: {e}")
+    else:
+        agent = DQLAgent(state_size=state_size, action_size=action_size, hidden_size=hidden_size)
+        try:
+            agent.load(MODEL_PATH)
+        except Exception as _load_err:
+            print(f"[WARN] DQN yuklenemedi: {_load_err}")
 
 training_state: Dict[str, Any] = {
     "running": False,
@@ -284,13 +297,16 @@ async def select_model(req: SelectModelRequest):
             config = checkpoint.get("config", {})
             state_size = config.get("state_size", 16)
             action_size = config.get("action_size", 4)
+            hidden_size = config.get("hidden_size", 256)
 
-            env = GridEnvironment(size=DEFAULT_SIZE, random_maps=True, state_size=state_size)
-            agent = A3CAgent(state_size=state_size, action_size=action_size)
+            # state_size=94 zengin state'i kendi ureteci ile besler, env yine 16 uretir
+            env_state_size = state_size if state_size in (12, 16) else 16
+            env = GridEnvironment(size=DEFAULT_SIZE, random_maps=True, state_size=env_state_size)
+            agent = A3CAgent(state_size=state_size, action_size=action_size, hidden_size=hidden_size)
             agent.network.load_state_dict(checkpoint["network_state"])
             agent.episode_count = checkpoint.get("episode_count", 0)
             agent.total_steps = checkpoint.get("total_steps", 0)
-            print(f"[DYNAMIC CHANGE] A3C model yüklendi! (Episodes: {agent.episode_count})")
+            print(f"[DYNAMIC CHANGE] A3C model yüklendi! (state_size={state_size}, hidden={hidden_size}, Episodes: {agent.episode_count})")
         elif IS_PPO:
             PPO_VIEW_RADIUS = get_model_view_radius(MODEL_PATH)
             print(f"[DYNAMIC CHANGE] PPO modeline geçiliyor: {MODEL_PATH} (View Radius: {PPO_VIEW_RADIUS})")
@@ -643,6 +659,61 @@ def get_ppo_observation(env, view_radius=7):
     return np.array(obs, dtype=np.float32)
 
 
+def get_a3c_v3_state(env, view_radius: int = 7) -> np.ndarray:
+    """A3C v3 (state_size=94) için zengin state.
+    8 yön ışın (32) + hedef (5) + visit_map 5x5 (25) + action_history 8x4 (32).
+    env.visit_map_a3c ve env.action_history_a3c attribute'ları lazy initialize."""
+    import math as _math
+    if not hasattr(env, "visit_map_a3c") or env.visit_map_a3c.shape[0] != env.size:
+        env.visit_map_a3c = np.zeros((env.size, env.size), dtype=np.float32)
+        env.visit_map_a3c[env.agent_pos[0], env.agent_pos[1]] = 1.0
+    if not hasattr(env, "action_history_a3c"):
+        env.action_history_a3c = deque([[0.0]*4 for _ in range(8)], maxlen=8)
+
+    obs = []
+    dirs = [(0,-1),(1,-1),(1,0),(1,1),(0,1),(-1,1),(-1,0),(-1,-1)]
+    dyn_dict = {}
+    for o in env.dynamic_obstacles:
+        dyn_dict[(o.row, o.col)] = o
+
+    for dx, dy in dirs:
+        hit = [1.0, 0.0, 0.0, 0.0]
+        for step in range(1, view_radius + 1):
+            rx, ry = env.agent_pos[0] + dx*step, env.agent_pos[1] + dy*step
+            if rx < 0 or rx >= env.size or ry < 0 or ry >= env.size:
+                hit = [step/view_radius, 1.0, 0.0, 0.0]; break
+            if env.grid[rx, ry] == 1:
+                hit = [step/view_radius, 1.0, 0.0, 0.0]; break
+            if (rx, ry) in dyn_dict:
+                d = dyn_dict[(rx, ry)]
+                dr = getattr(d, "dr", 0.0)
+                dc = getattr(d, "dc", 0.0)
+                vx = 0.5 if dr > 0 else (-0.5 if dr < 0 else 0.0)
+                vy = 0.5 if dc > 0 else (-0.5 if dc < 0 else 0.0)
+                hit = [step/view_radius, 0.5, vx, vy]; break
+        obs.extend(hit)
+
+    dx_g = (env.goal_pos[0] - env.agent_pos[0]) / env.size
+    dy_g = (env.goal_pos[1] - env.agent_pos[1]) / env.size
+    dist_n = _math.hypot(dx_g, dy_g) / _math.sqrt(2)
+    angle = _math.atan2(dy_g, dx_g)
+    obs.extend([dx_g, dy_g, dist_n, _math.sin(angle), _math.cos(angle)])
+
+    max_vis = max(1.0, float(np.max(env.visit_map_a3c)))
+    for dy_ in range(-2, 3):
+        for dx_ in range(-2, 3):
+            px, py = env.agent_pos[0] + dx_, env.agent_pos[1] + dy_
+            if 0 <= px < env.size and 0 <= py < env.size:
+                obs.append(env.visit_map_a3c[px, py] / max_vis)
+            else:
+                obs.append(1.0)
+
+    for act_arr in env.action_history_a3c:
+        obs.extend(act_arr)
+
+    return np.array(obs, dtype=np.float32)
+
+
 @app.websocket("/ws/simulate")
 async def ws_simulate(ws: WebSocket):
     """
@@ -702,6 +773,9 @@ async def ws_simulate(ws: WebSocket):
                         if IS_PPO:
                             if hasattr(env, "visit_map"): delattr(env, "visit_map")
                             if hasattr(env, "action_history"): delattr(env, "action_history")
+                        # A3C v3 visit_map ve action_history sifirla
+                        if hasattr(env, "visit_map_a3c"): delattr(env, "visit_map_a3c")
+                        if hasattr(env, "action_history_a3c"): delattr(env, "action_history_a3c")
                     else:
                         # Devam eden adımlarda (örneğin trafik ışığı değiştiğinde) 
                         # beynin geçmişini ve adımlarını koru, sadece ızgarayı ve ajanın anlık konumunu güncelle
@@ -822,30 +896,83 @@ async def ws_simulate(ws: WebSocket):
                     epsilon = 0.0  # PPO deterministik çalışıyor
                     episode = 1
                 else:
-                    if tick.get("state") is not None:
-                        state = np.array(tick["state"], dtype=np.float32)[:agent.state_size]
+                    # Model'in A3C mi DQN mi oldugunu tipinden anla
+                    is_a3c_agent = isinstance(agent, A3CAgent)
+                    DELTA_MAP = {0: (0, -1), 1: (0, 1), 2: (-1, 0), 3: (1, 0)}
+
+                    if is_a3c_agent and agent.state_size == 94:
+                        # A3C v3: zengin state + PPO-benzeri safety shield
+                        state = get_a3c_v3_state(env, view_radius=7)
+                        q_values = agent.get_q_values(state)
+
+                        safe_actions = []
+                        for a in range(4):
+                            dr, dc = DELTA_MAP[a]
+                            c_pos = (env.agent_pos[0] + dr, env.agent_pos[1] + dc)
+                            if not (0 <= c_pos[0] < env.size and 0 <= c_pos[1] < env.size):
+                                continue
+                            if env.grid[c_pos[0], c_pos[1]] == 1:
+                                continue
+                            is_dyn_blocked = False
+                            if hasattr(env, "dynamic_obstacles"):
+                                for idx, obs in enumerate(env.dynamic_obstacles):
+                                    if (obs.row, obs.col) == c_pos:
+                                        is_dyn_blocked = True; break
+                                    if (hasattr(env, "prev_dynamic_obstacles")
+                                            and idx < len(env.prev_dynamic_obstacles)):
+                                        prev_obs = env.prev_dynamic_obstacles[idx]
+                                        if ((prev_obs.row, prev_obs.col) == c_pos
+                                                and (obs.row, obs.col) == env.agent_pos):
+                                            is_dyn_blocked = True; break
+                            if not is_dyn_blocked:
+                                safe_actions.append(a)
+
+                        best_action = int(np.argmax(q_values))
+                        if best_action in safe_actions:
+                            action = best_action
+                        elif safe_actions:
+                            action = int(max(safe_actions, key=lambda a: q_values[a]))
+                        else:
+                            action = best_action
+
+                        _, reward, done, info = env.step(action)
+
+                        # visit_map ve action_history guncelle
+                        ar2, ac2 = env.agent_pos
+                        if hasattr(env, "visit_map_a3c"):
+                            if 0 <= ar2 < env.size and 0 <= ac2 < env.size:
+                                env.visit_map_a3c[ar2, ac2] += 1
+                        if hasattr(env, "action_history_a3c"):
+                            oh = [0.0] * 4
+                            if 0 <= action < 4:
+                                oh[action] = 1.0
+                            env.action_history_a3c.append(oh)
                     else:
-                        state = env._get_state()[:agent.state_size]
-                        
-                    q_values = agent.get_q_values(state)
-                    DELTA_MAP = {0: (0,-1), 1: (0,1), 2: (-1,0), 3: (1,0)}
-                    
-                    # Salınım tespiti: son 6 adımda ≤2 unique pozisyon
-                    oscillating = (
-                        len(pos_history) >= 6
-                        and len(set(list(pos_history)[-6:])) <= 2
-                    )
-                    
-                    if oscillating:
-                        recent = set(list(pos_history)[-4:])
-                        escape = [a for a in range(4)
-                                  if tuple(np.array(env.agent_pos) + np.array(DELTA_MAP[a])) not in recent]
-                        candidates = escape if escape else list(range(4))
-                        action = int(max(candidates, key=lambda a: q_values[a]))
-                    else:
-                        action = int(np.argmax(q_values))
-                        
-                    _, reward, done, info = env.step(action)
+                        # DQN (veya eski A3C): orijinal davranis — oscillation escape
+                        if tick.get("state") is not None:
+                            state = np.array(tick["state"], dtype=np.float32)[:agent.state_size]
+                        else:
+                            state = env._get_state()[:agent.state_size]
+
+                        q_values = agent.get_q_values(state)
+
+                        # Salınım tespiti: son 6 adımda <=2 unique pozisyon
+                        oscillating = (
+                            len(pos_history) >= 6
+                            and len(set(list(pos_history)[-6:])) <= 2
+                        )
+
+                        if oscillating:
+                            recent = set(list(pos_history)[-4:])
+                            escape = [a for a in range(4)
+                                      if tuple(np.array(env.agent_pos) + np.array(DELTA_MAP[a])) not in recent]
+                            candidates = escape if escape else list(range(4))
+                            action = int(max(candidates, key=lambda a: q_values[a]))
+                        else:
+                            action = int(np.argmax(q_values))
+
+                        _, reward, done, info = env.step(action)
+
                     epsilon = round(float(agent.epsilon), 4)
                     episode = int(agent.episode_count)
 
