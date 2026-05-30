@@ -7,9 +7,10 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-# Add project root to path
+# Add project and backend root to path
 project_root = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, project_root)
+backend_root = os.path.join(os.path.dirname(project_root), "backend")
+sys.path.insert(0, backend_root)
 
 # ==========================================
 # 1. ORTAM (ENVIRONMENT) VE DESTEK SINIFLARI
@@ -237,11 +238,73 @@ class AutonomousDriverEnv:
 
         return np.array(obs, dtype=np.float32)
 
+def get_a3c_v3_state(env, view_radius: int = 7) -> np.ndarray:
+    """A3C v3 (state_size=94) için zengin state. Koordinat çelişkilerini çözmek için row-col uzayına mapler."""
+    import math as _math
+    local_agent_pos = (env.agent_pos[1], env.agent_pos[0])  # (row, col)
+    local_goal_pos = (env.goal_pos[1], env.goal_pos[0])    # (row, col)
+
+    if not hasattr(env, "visit_map_a3c") or env.visit_map_a3c.shape[0] != env.grid_size:
+        env.visit_map_a3c = np.zeros((env.grid_size, env.grid_size), dtype=np.float32)
+        env.visit_map_a3c[local_agent_pos[0], local_agent_pos[1]] = 1.0
+    if not hasattr(env, "action_history_a3c"):
+        env.action_history_a3c = deque([[0.0]*4 for _ in range(8)], maxlen=8)
+
+    obs = []
+    dirs = [(0,-1),(1,-1),(1,0),(1,1),(0,1),(-1,1),(-1,0),(-1,-1)]
+    
+    static_obs = set()
+    for col, row in env.static_obs:
+        static_obs.add((row, col))
+        
+    dyn_dict = {}
+    for o in env.dynamic_obs:
+        r, c = int(round(o.y)), int(round(o.x))
+        dyn_dict[(r, c)] = o
+
+    for dx, dy in dirs:  # dx is dr, dy is dc
+        hit = [1.0, 0.0, 0.0, 0.0]
+        for step in range(1, view_radius + 1):
+            rx, ry = local_agent_pos[0] + dx*step, local_agent_pos[1] + dy*step
+            if rx < 0 or rx >= env.grid_size or ry < 0 or ry >= env.grid_size:
+                hit = [step/view_radius, 1.0, 0.0, 0.0]; break
+            if (rx, ry) in static_obs:
+                hit = [step/view_radius, 1.0, 0.0, 0.0]; break
+            if (rx, ry) in dyn_dict:
+                d = dyn_dict[(rx, ry)]
+                dr_norm = d.vy / 1.0
+                dc_norm = d.vx / 1.0
+                dr_scaled = 0.5 if dr_norm > 0 else (-0.5 if dr_norm < 0 else 0.0)
+                dc_scaled = 0.5 if dc_norm > 0 else (-0.5 if dc_norm < 0 else 0.0)
+                hit = [step/view_radius, 0.5, dr_scaled, dc_scaled]; break
+        obs.extend(hit)
+
+    dx_g = (local_goal_pos[0] - local_agent_pos[0]) / env.grid_size
+    dy_g = (local_goal_pos[1] - local_agent_pos[1]) / env.grid_size
+    dist_n = _math.hypot(dx_g, dy_g) / _math.sqrt(2)
+    angle = _math.atan2(dy_g, dx_g)
+    obs.extend([dx_g, dy_g, dist_n, _math.sin(angle), _math.cos(angle)])
+
+    max_vis = max(1.0, float(np.max(env.visit_map_a3c)))
+    for dy_ in range(-2, 3):
+        for dx_ in range(-2, 3):
+            px, py = local_agent_pos[0] + dx_, local_agent_pos[1] + dy_
+            if 0 <= px < env.grid_size and 0 <= py < env.grid_size:
+                obs.append(env.visit_map_a3c[px, py] / max_vis)
+            else:
+                obs.append(1.0)
+
+    for act_arr in env.action_history_a3c:
+        obs.extend(act_arr)
+
+    return np.array(obs, dtype=np.float32)
+
 # ==========================================
 # 2. AGENT DEFINITIONS
 # ==========================================
-from agent.ppo_agent import PPOAgent
-from agent.dql_agent import DQLAgent
+from agent.ppo_agent import PPOAgent  # type: ignore
+from agent.dql_agent import DQLAgent  # type: ignore
+from agent.a3c_agent import A3CAgent  # type: ignore
 
 def get_dqn_state(env, state_size):
     s = max(env.grid_size - 1, 1)
@@ -319,8 +382,8 @@ def get_dqn_state(env, state_size):
         
     return np.zeros(state_size, dtype=np.float32)
 
-def run_benchmark(model_key, env, num_episodes=300):
-    model_path = os.path.join(project_root, "models", model_key)
+def run_benchmark(model_key, env, num_episodes=100):
+    model_path = os.path.join(backend_root, "models", model_key)
     
     is_dql = model_key.endswith(".pth")
     
@@ -339,17 +402,28 @@ def run_benchmark(model_key, env, num_episodes=300):
         
     if is_dql:
         checkpoint = torch.load(model_path, map_location='cpu', weights_only=False)
-        cfg = checkpoint["config"]
+        cfg = checkpoint.get("config", {})
         state_size = cfg.get("state_size", 16)
         action_size = cfg.get("action_size", 4)
         hidden_size = cfg.get("hidden_size", 256)
         
-        agent = DQLAgent(
-            state_size=state_size,
-            action_size=action_size,
-            hidden_size=hidden_size
-        )
-        agent.load(model_path)
+        if "a3c" in model_key.lower():
+            agent = A3CAgent(
+                state_size=state_size,
+                action_size=action_size,
+                hidden_size=hidden_size
+            )
+            if "network_state" in checkpoint:
+                agent.network.load_state_dict(checkpoint["network_state"])
+            else:
+                agent.network.load_state_dict(checkpoint)
+        else:
+            agent = DQLAgent(
+                state_size=state_size,
+                action_size=action_size,
+                hidden_size=hidden_size
+            )
+            agent.load(model_path)
     else:
         agent = PPOAgent(state_size=102, action_size=5)
         agent.load(model_path)
@@ -367,6 +441,11 @@ def run_benchmark(model_key, env, num_episodes=300):
         random.seed(8888 + ep)
         np.random.seed(8888 + ep)
 
+        if hasattr(env, "visit_map_a3c"):
+            delattr(env, "visit_map_a3c")
+        if hasattr(env, "action_history_a3c"):
+            delattr(env, "action_history_a3c")
+
         obs, info = env.reset()
         done = False
         ep_reward = 0.0
@@ -374,9 +453,52 @@ def run_benchmark(model_key, env, num_episodes=300):
 
         while not done:
             if is_dql:
-                # 1. Correctly generate state vector using the expected DQN layout
-                sliced_obs = get_dqn_state(env, agent.state_size)
-                dql_action = agent.select_action(sliced_obs, training=False)
+                if "a3c" in model_key.lower():
+                    sliced_obs = get_a3c_v3_state(env, env.view_radius)
+                    q_values = agent.get_q_values(sliced_obs)
+                    
+                    # A3C v3 Safety Shield (PPO-benzeri kalkan)
+                    safe_actions = []
+                    for a in range(4):
+                        if a == 0: dx, dy = -1, 0  # LEFT
+                        elif a == 1: dx, dy = 1, 0   # RIGHT
+                        elif a == 2: dx, dy = 0, -1  # UP
+                        elif a == 3: dx, dy = 0, 1   # DOWN
+                        
+                        nx = env.agent_pos[0] + dx
+                        ny = env.agent_pos[1] + dy
+                        
+                        if not (0 <= nx < env.grid_size and 0 <= ny < env.grid_size):
+                            continue
+                        if (nx, ny) in env.static_obs:
+                            continue
+                        
+                        is_dyn_blocked = False
+                        for dyn in env.dynamic_obs:
+                            if nx == int(round(dyn.x)) and ny == int(round(dyn.y)):
+                                is_dyn_blocked = True
+                                break
+                        if not is_dyn_blocked:
+                            safe_actions.append(a)
+                            
+                    best_action = int(np.argmax(q_values))
+                    if best_action in safe_actions:
+                        dql_action = best_action
+                    elif safe_actions:
+                        dql_action = int(max(safe_actions, key=lambda a: q_values[a]))
+                    else:
+                        dql_action = best_action
+                        
+                    if hasattr(env, "visit_map_a3c"):
+                        env.visit_map_a3c[env.agent_pos[0], env.agent_pos[1]] += 1.0
+                    if hasattr(env, "action_history_a3c"):
+                        a_oh = [0.0] * 4
+                        a_oh[dql_action] = 1.0
+                        env.action_history_a3c.append(a_oh)
+                else:
+                    sliced_obs = get_dqn_state(env, agent.state_size)
+                    dql_action = agent.select_action(sliced_obs, training=False)
+                
                 # 2. Correctly map action IDs from DQN structure (LEFT/RIGHT/UP/DOWN) to PPO
                 if dql_action == 0: action = 2      # LEFT
                 elif dql_action == 1: action = 3    # RIGHT
@@ -423,11 +545,10 @@ def run_benchmark(model_key, env, num_episodes=300):
 
 if __name__ == "__main__":
     MODELS = [
-        ("ppo_v3",              "PPO v3"),
+        ("ppo_sweetspot_3",     "PPO Sweet Spot 3 (NEW)"),
         ("ppo_stage_4_hardcore","PPO v4 Hardcore"),
-        ("ppo_sweetspot",       "Sweet Spot 1 (Stg3)"),
-        ("ppo_sweetspot_2",     "Sweet Spot 2 (Final)"),
-        ("ppo_sweetspot_3",     "Sweet Spot 3 (NEW)"),
+        ("best_model_v4.pth",    "DQN v4"),
+        ("a3c_v3.pth",           "A3C v3"),
     ]
 
     GRIDS = [
@@ -449,7 +570,7 @@ if __name__ == "__main__":
 
         grid_results = {}
         for model_key, model_label in MODELS:
-            r = run_benchmark(model_key, env, num_episodes=300)
+            r = run_benchmark(model_key, env, num_episodes=100)
             grid_results[model_label] = r
         all_results[g["label"]] = grid_results
 

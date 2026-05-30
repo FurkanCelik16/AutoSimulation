@@ -10,27 +10,27 @@ import { saveMap, buildGameMapDTO } from './services/api';
 import { useSimulation } from './hooks/useSimulation';
 
 /* ─── Sabitler ─── */
-const GRID_SIZES   = [11, 15, 21, 31];
+const GRID_SIZES = [11, 15, 21, 31];
 const DEFAULT_SIZE = 15;
 
 const MODES = [
-  { id: 'obstacle', label: '⬛ Engel',      title: 'Statik engel koy / kaldır' },
-  { id: 'dynamic',  label: '🔮 Hareketli',  title: 'Hareketli engel ekle / kaldır' },
-  { id: 'start',    label: '🟢 Başlangıç',  title: 'Başlangıç noktasını seç' },
-  { id: 'goal',     label: '🟠 Hedef',       title: 'Hedef noktasını seç' },
-  { id: 'waypoint', label: '📍 Durak',       title: 'Uğranacak durak noktasını seç' },
+  { id: 'obstacle', label: '⬛ Engel', title: 'Statik engel koy / kaldır' },
+  { id: 'dynamic', label: '🔮 Hareketli', title: 'Hareketli engel ekle / kaldır' },
+  { id: 'start', label: '🟢 Başlangıç', title: 'Başlangıç noktasını seç' },
+  { id: 'goal', label: '🟠 Hedef', title: 'Hedef noktasını seç' },
+  { id: 'waypoint', label: '📍 Durak', title: 'Uğranacak durak noktasını seç' },
   { id: 'traffic-light', label: '🚦 Trafik Işığı', title: 'Trafik ışığı yerleştir / kaldır' },
 ];
 
 const PATTERNS = [
   { id: 'linear-h', label: '↔ Yatay' },
   { id: 'linear-v', label: '↕ Dikey' },
-  { id: 'random',   label: '⟳ Rastgele' },
+  { id: 'random', label: '⟳ Rastgele' },
 ];
 
 const SPEEDS = [
   { label: 'Yavaş', ms: 900 },
-  { label: 'Orta',  ms: 450 },
+  { label: 'Orta', ms: 450 },
   { label: 'Hızlı', ms: 180 },
 ];
 
@@ -50,10 +50,20 @@ function createEmptyGrid(size) {
 }
 function countType(grid, type) { return grid.flat().filter(c => c === type).length; }
 
+const getProbabilities = (qValues) => {
+  if (!qValues || qValues.length === 0) return [];
+  const isAlreadyProb = qValues.every(v => v >= 0) && Math.abs(qValues.reduce((a, b) => a + b, 0) - 1.0) < 0.05;
+  if (isAlreadyProb) return qValues;
+  const maxQ = Math.max(...qValues);
+  const exps = qValues.map(v => Math.exp(v - maxQ));
+  const sumExps = exps.reduce((a, b) => a + b, 0);
+  return exps.map(e => e / sumExps);
+};
+
 /* ─── App ─── */
 export default function App() {
-  const [size,             setSize]             = useState(DEFAULT_SIZE);
-  const [baseGrid,         setBaseGrid]         = useState(() => createEmptyGrid(DEFAULT_SIZE));
+  const [size, setSize] = useState(DEFAULT_SIZE);
+  const [baseGrid, setBaseGrid] = useState(() => createEmptyGrid(DEFAULT_SIZE));
   const [dynamicObstacles, setDynamicObstacles] = useState([]);
   const dynamicObstaclesRef = useRef([]);
 
@@ -81,25 +91,25 @@ export default function App() {
     }, 4000);
     return () => clearInterval(interval);
   }, []);
-  const [mode,             setMode]             = useState('obstacle');
-  const [pattern,          setPattern]          = useState('linear-h');
-  const [startPos,             setStartPos]             = useState(null);
-  const [goalPos,              setGoalPos]              = useState(null);
-  const [waypoints,            setWaypoints]            = useState([]);
+  const [mode, setMode] = useState('obstacle');
+  const [pattern, setPattern] = useState('linear-h');
+  const [startPos, setStartPos] = useState(null);
+  const [goalPos, setGoalPos] = useState(null);
+  const [waypoints, setWaypoints] = useState([]);
   const [currentWaypointIndex, setCurrentWaypointIndex] = useState(0);
-  const [trafficLights,        setTrafficLights]        = useState([]);
-  const [lightsGreen,          setLightsGreen]          = useState(true);
-  const [agentPos,             setAgentPos]             = useState(null);
-  const [isMoving,             setIsMoving]             = useState(false);
-  const [simSpeed,             setSimSpeed]             = useState(450);
+  const [trafficLights, setTrafficLights] = useState([]);
+  const [lightsGreen, setLightsGreen] = useState(true);
+  const [agentPos, setAgentPos] = useState(null);
+  const [isMoving, setIsMoving] = useState(false);
+  const [simSpeed, setSimSpeed] = useState(450);
 
   /* ── Backend eğitim durumu ── */
-  const [isSaving,         setIsSaving]         = useState(false);
-  const [saveStatus,       setSaveStatus]       = useState(null); // 'ok' | 'error' | null
-  const [isTraining,       setIsTraining]       = useState(false);
-  const [lastAction,       setLastAction]       = useState(null); // SimulationResponseDTO
-  const [modalState,       setModalState]       = useState({ show: false, type: 'success' }); // 'success' | 'fail'
-  const [view3D,           setView3D]           = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveStatus, setSaveStatus] = useState(null); // 'ok' | 'error' | null
+  const [isTraining, setIsTraining] = useState(false);
+  const [lastAction, setLastAction] = useState(null); // SimulationResponseDTO
+  const [modalState, setModalState] = useState({ show: false, type: 'success', steps: 0, reward: 0 }); // 'success' | 'fail'
+  const [view3D, setView3D] = useState(false);
   const mapNameRef = useRef('harita1');
 
   // 🤖 Yapay Zeka Model Seçici Durumları
@@ -158,13 +168,21 @@ export default function App() {
   const activeModelRef = useRef('');
   activeModelRef.current = activeModel;
 
+  const totalRewardRef = useRef(0);
+  const totalStepsRef = useRef(0);
+
+  const isMovingRef = useRef(false);
+  isMovingRef.current = isMoving;
+
+  const isWaitingForResponseRef = useRef(false);
+
   /* ─── Dinamik engellerin bir sonraki adımını hesaplayan senkronize yardımcı fonksiyon ─── */
   const getNextDynamicObstacles = useCallback((prev) => {
     const isStaticBlocked = (r, c) =>
       r < 0 || r >= size || c < 0 || c >= size ||
       baseGrid[r]?.[c] === 'obstacle' ||
       (startPos && r === startPos.row && c === startPos.col) ||
-      (goalPos  && r === goalPos.row  && c === goalPos.col);
+      (goalPos && r === goalPos.row && c === goalPos.col);
 
     const moves = prev.map(obs => {
       const { row, col, direction, pattern: p } = obs;
@@ -177,11 +195,11 @@ export default function App() {
           return { row: row - dr, col: col - dc, dir: -direction, moved: true };
         return { row, col, dir: direction, moved: false };
       } else {
-        const dirs = [[-1,0],[1,0],[0,-1],[0,1]];
-        const valid = dirs.filter(([dr,dc]) => !isStaticBlocked(row+dr, col+dc));
+        const dirs = [[-1, 0], [1, 0], [0, -1], [0, 1]];
+        const valid = dirs.filter(([dr, dc]) => !isStaticBlocked(row + dr, col + dc));
         if (!valid.length) return { row, col, dir: direction, moved: false };
-        const [dr,dc] = valid[Math.floor(Math.random() * valid.length)];
-        return { row: row+dr, col: col+dc, dir: direction, moved: true };
+        const [dr, dc] = valid[Math.floor(Math.random() * valid.length)];
+        return { row: row + dr, col: col + dc, dir: direction, moved: true };
       }
     });
 
@@ -206,8 +224,8 @@ export default function App() {
 
     return prev.map((obs, i) => ({
       ...obs,
-      row:       resolved[i].row,
-      col:       resolved[i].col,
+      row: resolved[i].row,
+      col: resolved[i].col,
       direction: resolved[i].dir,
     }));
   }, [size, baseGrid, startPos, goalPos]);
@@ -215,9 +233,17 @@ export default function App() {
   /* ── WebSocket simülasyon hook ── */
   const { connect, disconnect, sendTick, connected } = useSimulation({
     onResponse: useCallback((res) => {
+      isWaitingForResponseRef.current = false;
       setLastAction(res);
       console.log('[SIM] Aksiyon:', res.action_label, '| Q:', res.q_values);
-      
+
+      if (res.reward !== undefined) {
+        totalRewardRef.current += res.reward;
+      }
+      if (res.steps !== undefined) {
+        totalStepsRef.current = res.steps;
+      }
+
       if (res.agent_pos) {
         // Kartezyen (x,y) -> (row, col)
         const nextPos = coordToIndex(res.agent_pos.x, res.agent_pos.y, size);
@@ -227,6 +253,7 @@ export default function App() {
         if (isTrainingRef.current) {
           setTimeout(() => {
             if (!isTrainingRef.current) return;
+            if (!isMovingRef.current) return; // Hareketi durdurduysak bir sonraki adımı tetikleme!
 
             // Anlık aktif hedefi bul (sıradaki durak veya nihai hedef)
             const activeTarget = (waypoints.length > 0 && currentWaypointIndexRef.current < waypoints.length)
@@ -239,7 +266,7 @@ export default function App() {
               // Eğer bir durağa (waypoint) ulaştıysak:
               if (waypoints.length > 0 && currentWaypointIndexRef.current < waypoints.length && reachedTarget) {
                 console.log(`[WAYPOINT] Durak ${currentWaypointIndexRef.current + 1}'e ulaşıldı! Bir sonraki hedefe yönleniliyor...`);
-                
+
                 const nextIndex = currentWaypointIndexRef.current + 1;
                 setCurrentWaypointIndex(nextIndex);
                 currentWaypointIndexRef.current = nextIndex;
@@ -251,6 +278,7 @@ export default function App() {
                 updateDynamicObstacles(calculatedNextDyn);
 
                 // Ortamı yeni start/goal ve güncel trafik ışıklarıyla sıfırlamak için grid payload ile yeni Phase başlat
+                isWaitingForResponseRef.current = true;
                 sendTick({
                   map_name: mapNameRef.current,
                   is_first_tick: true,
@@ -271,7 +299,9 @@ export default function App() {
                 setSaveStatus('done');
                 setModalState({
                   show: true,
-                  type: res.reached_goal ? 'success' : 'fail'
+                  type: res.reached_goal ? 'success' : 'fail',
+                  steps: totalStepsRef.current,
+                  reward: totalRewardRef.current
                 });
               }
             } else {
@@ -280,6 +310,7 @@ export default function App() {
               updateDynamicObstacles(calculatedNextDyn);
 
               // Simülasyonu devam ettir. Her adımda trafik ışığı durumunu ve engelleri göndermek için grid'i de gönderiyoruz!
+              isWaitingForResponseRef.current = true;
               sendTick({
                 map_name: mapNameRef.current,
                 agent_pos: indexToCoord(nextPos.row, nextPos.col, size),
@@ -309,6 +340,7 @@ export default function App() {
       setAgentPos(startPos);
       console.log('[SIM] Simülasyon başlatılıyor, ilk adım gönderiliyor...');
       const activeTarget = (waypoints.length > 0 && currentWaypointIndexRef.current < waypoints.length) ? waypoints[currentWaypointIndexRef.current] : goalPos;
+      isWaitingForResponseRef.current = true;
       sendTick({
         map_name: mapNameRef.current,
         is_first_tick: true,
@@ -326,6 +358,33 @@ export default function App() {
       setAgentPos(null);
     }
   }, [connected, isTraining, startPos, goalPos, waypoints, size, baseGrid, sendTick]);
+
+  // Hareketi duraklatıp tekrar başlattığımızda simülasyonu devam ettir
+  useEffect(() => {
+    if (connected && isTraining && isMoving && agentPos && !isWaitingForResponseRef.current) {
+      console.log('[SIM] Harekete devam ediliyor, adım gönderiliyor...');
+      const activeTarget = (waypoints.length > 0 && currentWaypointIndexRef.current < waypoints.length)
+        ? waypoints[currentWaypointIndexRef.current]
+        : goalPos;
+
+      const calculatedNextDyn = getNextDynamicObstacles(dynamicObstaclesRef.current);
+      updateDynamicObstacles(calculatedNextDyn);
+
+      isWaitingForResponseRef.current = true;
+      sendTick({
+        map_name: mapNameRef.current,
+        agent_pos: indexToCoord(agentPos.row, agentPos.col, size),
+        goal_pos: indexToCoord(activeTarget.row, activeTarget.col, size),
+        dynamic_obstacles: calculatedNextDyn.map(o => indexToCoord(o.row, o.col, size)),
+        grid: baseGrid.map((r, rIdx) => r.map((c, cIdx) => {
+          if (c === 'obstacle') return 1;
+          const isRedLight = trafficLightsRef.current.some(t => t.row === rIdx && t.col === cIdx) && !lightsGreenRef.current;
+          if (isRedLight) return 1;
+          return 0;
+        }))
+      });
+    }
+  }, [isMoving]);
 
   /* Görüntüleme gridi */
   const displayGrid = useMemo(() => {
@@ -421,9 +480,9 @@ export default function App() {
     disconnect();
   };
 
-  const clearStatic  = () => setBaseGrid(p => p.map(r => r.map(c => c==='obstacle'?'empty':c)));
+  const clearStatic = () => setBaseGrid(p => p.map(r => r.map(c => c === 'obstacle' ? 'empty' : c)));
   const clearDynamic = () => { setDynamicObstacles([]); setIsMoving(false); };
-  const reset        = () => {
+  const reset = () => {
     setBaseGrid(createEmptyGrid(size)); setDynamicObstacles([]);
     setStartPos(null); setGoalPos(null);
     setWaypoints([]); setCurrentWaypointIndex(0); setTrafficLights([]);
@@ -437,7 +496,7 @@ export default function App() {
     const queue = [[start.row, start.col]];
     const visited = Array.from({ length: size }, () => Array(size).fill(false));
     visited[start.row][start.col] = true;
-    const dirs = [[-1,0], [1,0], [0,-1], [0,1]];
+    const dirs = [[-1, 0], [1, 0], [0, -1], [0, 1]];
     while (queue.length > 0) {
       const [r, c] = queue.shift();
       if (r === goal.row && c === goal.col) return true;
@@ -470,7 +529,7 @@ export default function App() {
       const emptyCells = [];
       for (let r = 0; r < size; r++) {
         for (let c = 0; c < size; c++) {
-          if (newGrid[r][c] === 'empty') emptyCells.push({row: r, col: c});
+          if (newGrid[r][c] === 'empty') emptyCells.push({ row: r, col: c });
         }
       }
 
@@ -495,7 +554,7 @@ export default function App() {
           for (let r = 0; r < size; r++) {
             for (let c = 0; c < size; c++) {
               if (newGrid[r][c] === 'empty' && !(r === startCell.row && c === startCell.col) && !(r === goalCell.row && c === goalCell.col)) {
-                remainingEmpty.push({row: r, col: c});
+                remainingEmpty.push({ row: r, col: c });
               }
             }
           }
@@ -566,9 +625,14 @@ export default function App() {
       setCurrentWaypointIndex(0);
       currentWaypointIndexRef.current = 0;
 
+      // İstatistik referanslarını sıfırla
+      totalRewardRef.current = 0;
+      totalStepsRef.current = 0;
+
       // WebSocket bağlantısını hemen kur
       connect();
       setIsTraining(true);
+      setIsMoving(true); // Hareketi otomatik olarak başlat
     } catch (err) {
       console.error('Başlatma hatası:', err);
       setSaveStatus('error');
@@ -577,11 +641,11 @@ export default function App() {
     }
   }, [isTraining, startPos, goalPos, size, baseGrid, dynamicObstacles, connect, disconnect]);
 
-  const center      = Math.floor(size / 2);
+  const center = Math.floor(size / 2);
   const staticCount = countType(baseGrid, 'obstacle');
-  const dynCount    = dynamicObstacles.length;
-  const startCoord  = startPos ? indexToCoord(startPos.row, startPos.col, size) : null;
-  const goalCoord   = goalPos  ? indexToCoord(goalPos.row,  goalPos.col,  size) : null;
+  const dynCount = dynamicObstacles.length;
+  const startCoord = startPos ? indexToCoord(startPos.row, startPos.col, size) : null;
+  const goalCoord = goalPos ? indexToCoord(goalPos.row, goalPos.col, size) : null;
 
   return (
     <div className="app">
@@ -595,7 +659,7 @@ export default function App() {
         <span className="mode-bar__label">Mod:</span>
         {MODES.map(m => (
           <button key={m.id} id={`mode-btn-${m.id}`}
-            className={`mode-btn${mode===m.id?' mode-btn--active':''}`}
+            className={`mode-btn${mode === m.id ? ' mode-btn--active' : ''}`}
             onClick={() => setMode(m.id)} title={m.title}>
             {m.label}
           </button>
@@ -606,7 +670,7 @@ export default function App() {
             <span className="mode-bar__label">Hareket:</span>
             {PATTERNS.map(p => (
               <button key={p.id}
-                className={`pattern-btn${pattern===p.id?' pattern-btn--active':''}`}
+                className={`pattern-btn${pattern === p.id ? ' pattern-btn--active' : ''}`}
                 onClick={() => setPattern(p.id)}>
                 {p.label}
               </button>
@@ -629,7 +693,7 @@ export default function App() {
           <span className="control-label">Hız:</span>
           {SPEEDS.map(sp => (
             <button key={sp.ms}
-              className={`speed-btn${simSpeed===sp.ms?' speed-btn--active':''}`}
+              className={`speed-btn${simSpeed === sp.ms ? ' speed-btn--active' : ''}`}
               onClick={() => setSimSpeed(sp.ms)}
               disabled={mode !== 'dynamic'}>
               {sp.label}
@@ -640,21 +704,21 @@ export default function App() {
 
         <div className="control-group">
           <button id="btn-toggle-move"
-            className={`btn ${isMoving?'btn-stop':'btn-move'}`}
-            onClick={() => setIsMoving(v=>!v)}
-            disabled={dynCount === 0}>
+            className={`btn ${isMoving ? 'btn-stop' : 'btn-move'}`}
+            onClick={() => setIsMoving(v => !v)}
+            disabled={dynCount === 0 && !isTraining}>
             {isMoving ? '⏹ Durdur' : '▶ Hareketi Başlat'}
           </button>
         </div>
         <div className="control-divider" />
 
         <div className="control-group">
-          <button className="btn btn-secondary" onClick={clearStatic}  disabled={staticCount===0}>🧹 Sabit ({staticCount})</button>
-          <button className="btn btn-secondary" onClick={clearDynamic} disabled={dynCount===0}>🗑 Hareketli ({dynCount})</button>
+          <button className="btn btn-secondary" onClick={clearStatic} disabled={staticCount === 0}>🧹 Sabit ({staticCount})</button>
+          <button className="btn btn-secondary" onClick={clearDynamic} disabled={dynCount === 0}>🗑 Hareketli ({dynCount})</button>
           <button className="btn btn-secondary" onClick={reset}>↺ Sıfırla</button>
-          <select 
-            id="difficulty-select" 
-            className="select-difficulty btn btn-secondary" 
+          <select
+            id="difficulty-select"
+            className="select-difficulty btn btn-secondary"
             style={{
               background: '#21262d',
               color: '#c9d1d9',
@@ -683,12 +747,12 @@ export default function App() {
 
         {/* 2D / 3D Görünüm Seçici */}
         <div className="control-group" style={{ display: 'flex', gap: '2px' }}>
-          <button 
-            className={`btn ${!view3D ? 'btn-primary' : 'btn-secondary'}`} 
+          <button
+            className={`btn ${!view3D ? 'btn-primary' : 'btn-secondary'}`}
             onClick={() => setView3D(false)}
-            style={{ 
-              minWidth: '60px', 
-              borderTopRightRadius: 0, 
+            style={{
+              minWidth: '60px',
+              borderTopRightRadius: 0,
               borderBottomRightRadius: 0,
               display: 'flex',
               alignItems: 'center',
@@ -698,12 +762,12 @@ export default function App() {
           >
             📺 2D
           </button>
-          <button 
-            className={`btn ${view3D ? 'btn-primary' : 'btn-secondary'}`} 
+          <button
+            className={`btn ${view3D ? 'btn-primary' : 'btn-secondary'}`}
             onClick={() => setView3D(true)}
-            style={{ 
-              minWidth: '60px', 
-              borderTopLeftRadius: 0, 
+            style={{
+              minWidth: '60px',
+              borderTopLeftRadius: 0,
               borderBottomLeftRadius: 0,
               marginLeft: '-1px',
               display: 'flex',
@@ -736,9 +800,9 @@ export default function App() {
           <label htmlFor="model-select" style={{ color: '#38bdf8', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '4px' }}>
             🤖 Beyin:
           </label>
-          <select 
-            id="model-select" 
-            className="select-model btn btn-secondary" 
+          <select
+            id="model-select"
+            className="select-model btn btn-secondary"
             value={activeModel}
             onChange={handleModelChange}
             style={{
@@ -757,63 +821,137 @@ export default function App() {
           >
             {availableModels.map(m => (
               <option key={m.key} value={m.key} style={{ background: '#0f172a', color: '#fff' }}>
-                {m.type === 'PPO' ? '🔥 PPO' : '⚙️ DQN'} - {m.key.toUpperCase()}
+                {m.type === 'PPO' ? '🤖 PPO' : (m.type === 'A3C' ? '🧠 A3C' : '⚙️ DQN')} - {m.key.toUpperCase()}
               </option>
             ))}
           </select>
         </div>
         <div className="control-divider" />
 
-        {/* Eğitimi Başlat / Durdur */}
+        {/* Testi Başlat / Testi Sonlandır */}
         <div className="control-group">
           <button id="btn-train"
             className={`btn ${isTraining ? 'btn-stop' : 'btn-primary'}`}
             onClick={handleTrainClick}
             disabled={(!startPos || !goalPos) || isSaving}
-            title={!startPos||!goalPos ? 'Önce başlangıç ve hedef noktalarını seç' : ''}>
+            title={!startPos || !goalPos ? 'Önce başlangıç ve hedef noktalarını seç' : ''}>
             {isSaving
               ? '⏳ Kaydediliyor…'
               : isTraining
-                ? '⏹ Eğitimi Durdur'
-                : 'Eğitimi Başlat →'}
+                ? '⏹ Testi Sonlandır'
+                : 'Testi Başlat →'}
           </button>
         </div>
       </div>
 
       {/* Backend durum bildirimi */}
-      {saveStatus && (
-        <div className={`save-toast save-toast--${saveStatus}`} role="status">
-          {saveStatus === 'ok'
-            ? `✓ Harita kaydedildi${connected ? ' · Simülasyon bağlandı' : ''}`
-            : saveStatus === 'done'
-            ? '🏁 Simülasyon tamamlandı (Hedefe ulaşıldı veya çarpışma oldu)'
-            : '✗ Backend bağlantı hatası — konsolu kontrol et'}
+      {saveStatus && saveStatus === 'error' && (
+        <div className="save-toast save-toast--error" role="status">
+          ✗ Backend bağlantı hatası — konsolu kontrol et
         </div>
       )}
 
-      {/* Son aksiyon bilgisi */}
+      {/* Ajan Karar Analitiği Dashboard */}
       {lastAction && (
-        <div className="action-badge">
-          <span className="action-badge__label">Son Aksiyon</span>
-          <span className="action-badge__value">{lastAction.action_label}</span>
-          <span className="action-badge__q">
-            Q: [{lastAction.q_values?.map(v => v.toFixed(2)).join(', ')}]
-          </span>
+        <div style={{
+          background: 'linear-gradient(135deg, #1e293b 0%, #0f172a 100%)',
+          border: '1px solid #38bdf8',
+          boxShadow: '0 8px 32px rgba(56, 189, 248, 0.15)',
+          borderRadius: '10px',
+          padding: '10px 14px',
+          color: '#f8fafc',
+          maxWidth: '480px',
+          margin: '10px auto 15px auto',
+          fontFamily: "'Outfit', 'Inter', sans-serif"
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px', flexWrap: 'wrap', gap: '8px' }}>
+            <h3 style={{ margin: 0, fontSize: '13px', color: '#38bdf8', letterSpacing: '1px' }}>
+              🧠 Ajan Karar Analitiği
+            </h3>
+            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+              <span style={{
+                background: '#1e293b',
+                padding: '2px 6px',
+                borderRadius: '4px',
+                fontSize: '11px',
+                border: '1px solid #334155'
+              }}>
+                Son Yön: <strong style={{ color: '#38bdf8' }}>{
+                  (() => {
+                    const val = lastAction.action_label?.toUpperCase();
+                    if (val === 'LEFT') return 'SOL (←)';
+                    if (val === 'RIGHT') return 'SAĞ (→)';
+                    if (val === 'UP') return 'YUKARI (↑)';
+                    if (val === 'DOWN') return 'AŞAĞI (↓)';
+                    if (val === 'STAY') return 'BEKLE (⏸)';
+                    return lastAction.action_label;
+                  })()
+                }</strong>
+              </span>
+              <span style={{
+                background: lastAction.reward >= 0 ? 'rgba(63, 185, 80, 0.15)' : 'rgba(248, 81, 73, 0.15)',
+                color: lastAction.reward >= 0 ? '#3fb950' : '#f85149',
+                padding: '2px 8px',
+                borderRadius: '4px',
+                fontSize: '11px',
+                border: lastAction.reward >= 0 ? '1px solid #3fb950' : '1px solid #f85149',
+                fontWeight: 'bold'
+              }}>
+                Adım Ödülü: {lastAction.reward >= 0 ? `+${lastAction.reward.toFixed(2)}` : lastAction.reward.toFixed(2)}
+              </span>
+            </div>
+          </div>
+
+          {/* Probability Bars */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            {(() => {
+              const labels = lastAction.q_values?.length === 5
+                ? ['SOL (←)', 'SAĞ (→)', 'YUKARI (↑)', 'AŞAĞI (↓)', 'BEKLE (⏸)']
+                : ['SOL (←)', 'SAĞ (→)', 'YUKARI (↑)', 'AŞAĞI (↓)'];
+              const probs = getProbabilities(lastAction.q_values);
+              return probs.map((prob, idx) => {
+                const qVal = lastAction.q_values[idx];
+                const isChosen = lastAction.action === idx || (idx === 4 && lastAction.action_label === 'STAY');
+                return (
+                  <div key={idx} style={{ display: 'flex', alignItems: 'center', fontSize: '12px' }}>
+                    <div style={{ width: '80px', fontWeight: isChosen ? 'bold' : 'normal', color: isChosen ? '#38bdf8' : '#94a3b8' }}>
+                      {labels[idx]}
+                    </div>
+                    <div style={{ flex: 1, height: '6px', background: '#334155', borderRadius: '3px', margin: '0 8px', overflow: 'hidden', position: 'relative' }}>
+                      <div style={{
+                        width: `${(prob * 100).toFixed(1)}%`,
+                        height: '100%',
+                        background: isChosen ? 'linear-gradient(90deg, #38bdf8, #0ea5e9)' : '#475569',
+                        borderRadius: '3px',
+                        transition: 'width 0.3s ease-out'
+                      }} />
+                    </div>
+                    <div style={{ width: '35px', textAlign: 'right', fontWeight: 'bold', color: isChosen ? '#38bdf8' : '#64748b' }}>
+                      {(prob * 100).toFixed(0)}%
+                    </div>
+                    <div style={{ width: '55px', textAlign: 'right', fontSize: '11px', color: '#64748b', fontFamily: 'monospace' }}>
+                      ({qVal !== undefined ? qVal.toFixed(2) : '0.00'})
+                    </div>
+                  </div>
+                );
+              });
+            })()}
+          </div>
         </div>
       )}
 
       {view3D ? (
-        <Simulation3D 
-          size={size} 
-          baseGrid={baseGrid} 
-          agentPos={agentPos} 
-          goalPos={goalPos} 
+        <Simulation3D
+          size={size}
+          baseGrid={baseGrid}
+          agentPos={agentPos}
+          goalPos={goalPos}
           waypoints={waypoints}
           currentWaypointIndex={currentWaypointIndex}
           trafficLights={trafficLights}
           lightsGreen={lightsGreen}
-          dynamicObstacles={dynamicObstacles} 
-          lastAction={lastAction} 
+          dynamicObstacles={dynamicObstacles}
+          lastAction={lastAction}
           simSpeed={simSpeed}
         />
       ) : (
@@ -822,13 +960,13 @@ export default function App() {
       )}
 
       <div className="legend" role="list">
-        <div className="legend-item"><span className="legend-dot legend-dot--start"/>Başlangıç {startCoord?`(${startCoord.x},${startCoord.y})`:'— seçilmedi'}</div>
-        <div className="legend-item"><span className="legend-dot legend-dot--agent"/>Yapay Zeka (Ajan)</div>
+        <div className="legend-item"><span className="legend-dot legend-dot--start" />Başlangıç {startCoord ? `(${startCoord.x},${startCoord.y})` : '— seçilmedi'}</div>
+        <div className="legend-item"><span className="legend-dot legend-dot--agent" />Yapay Zeka (Ajan)</div>
         <div className="legend-item"><span className="legend-dot" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: '14px', width: '12px', height: '12px' }}>📍</span>Duraklar {waypoints.length > 0 ? waypoints.map(w => { const c = indexToCoord(w.row, w.col, size); return `(${c.x},${c.y})`; }).join(', ') : '— seçilmedi'}</div>
         <div className="legend-item"><span className="legend-dot" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: '14px', width: '12px', height: '12px' }}>🚦</span>Trafik Işıkları ({lightsGreen ? '🟩 YEŞİL' : '🟥 KIRMIZI'})</div>
-        <div className="legend-item"><span className="legend-dot legend-dot--goal"/>Hedef {goalCoord?`(${goalCoord.x},${goalCoord.y})`:'— seçilmedi'}</div>
-        <div className="legend-item"><span className="legend-dot legend-dot--obstacle"/>Sabit Engel</div>
-        <div className="legend-item"><span className="legend-dot legend-dot--dynamic"/>Hareketli Engel</div>
+        <div className="legend-item"><span className="legend-dot legend-dot--goal" />Hedef {goalCoord ? `(${goalCoord.x},${goalCoord.y})` : '— seçilmedi'}</div>
+        <div className="legend-item"><span className="legend-dot legend-dot--obstacle" />Sabit Engel</div>
+        <div className="legend-item"><span className="legend-dot legend-dot--dynamic" />Hareketli Engel</div>
         <div className="legend-item legend-item--axis"><span className="legend-axis-icon">＋</span>Orijin (0,0)</div>
       </div>
 
@@ -865,7 +1003,7 @@ export default function App() {
               zIndex: 0,
               pointerEvents: 'none'
             }} />
-            
+
             <div style={{ position: 'relative', zIndex: 1 }}>
               <div style={{
                 fontSize: '60px',
@@ -888,15 +1026,40 @@ export default function App() {
               <p style={{
                 color: '#8b949e',
                 fontSize: '15px',
-                margin: '0 0 30px 0',
+                margin: '0 0 20px 0',
                 lineHeight: '1.6'
               }}>
-                {modalState.type === 'success' 
-                  ? 'Ajan engelleri başarıyla aşarak hedefe güvenli bir şekilde ulaştı!' 
+                {modalState.type === 'success'
+                  ? 'Ajan engelleri başarıyla aşarak hedefe güvenli bir şekilde ulaştı!'
                   : 'Ajan bir engele çarptı veya sınırların dışına çıktı!'}
               </p>
-              
-              <button 
+
+              {/* Stats Box */}
+              <div style={{
+                display: 'flex',
+                justifyContent: 'space-around',
+                background: 'rgba(255, 255, 255, 0.05)',
+                borderRadius: '8px',
+                padding: '15px',
+                marginBottom: '25px',
+                border: '1px solid rgba(255, 255, 255, 0.1)'
+              }}>
+                <div>
+                  <div style={{ fontSize: '11px', color: '#8b949e', textTransform: 'uppercase', letterSpacing: '1px' }}>Toplam Adım</div>
+                  <div style={{ fontSize: '20px', fontWeight: 'bold', color: '#38bdf8', marginTop: '4px' }}>
+                    {modalState.steps}
+                  </div>
+                </div>
+                <div style={{ width: '1px', background: 'rgba(255, 255, 255, 0.1)' }} />
+                <div>
+                  <div style={{ fontSize: '11px', color: '#8b949e', textTransform: 'uppercase', letterSpacing: '1px' }}>Toplam Ödül</div>
+                  <div style={{ fontSize: '20px', fontWeight: 'bold', color: modalState.reward >= 0 ? '#3fb950' : '#f85149', marginTop: '4px' }}>
+                    {modalState.reward ? modalState.reward.toFixed(1) : '0.0'}
+                  </div>
+                </div>
+              </div>
+
+              <button
                 onClick={() => setModalState({ show: false, type: 'success' })}
                 style={{
                   background: modalState.type === 'success' ? '#238636' : '#da3633',
@@ -918,7 +1081,7 @@ export default function App() {
               </button>
             </div>
           </div>
-          
+
           <style>{`
             @keyframes fadeIn {
               from { opacity: 0; }
