@@ -97,8 +97,9 @@ MODEL_PATH = os.path.join(
 )
 DEFAULT_SIZE = 15  # Sweet Spot 3 — tüm grid boyutlarında şampiyon
 
-# PPO mu yoksa DQN mu otomatik olarak tespit et ve yükle
+# PPO, DQN veya A2C (SB3) modelini otomatik olarak tespit et ve yükle
 IS_PPO = os.path.exists(os.path.join(MODEL_PATH, "policy.pth")) or "ppo" in MODEL_PATH.lower()
+IS_A2C_SB3 = MODEL_PATH.endswith(".zip") or "a2c" in MODEL_PATH.lower()
 
 # Dynamic view radius mapping for different PPO models
 def get_model_view_radius(model_path: str) -> int:
@@ -121,7 +122,16 @@ print("[INIT] A3C v8: SAF RL (state_size=94) + PPO-benzeri shield AKTIF")
 print("[INIT] Eger bu satiri gormediysen backend eski kod calistiriyor!")
 print("=" * 60)
 
-if IS_PPO:
+if IS_A2C_SB3:
+    print(f"[INIT] A2C SB3 Model tespit edildi! Model: {MODEL_PATH}")
+    env = GridEnvironment(size=DEFAULT_SIZE, random_maps=True, state_size=77)
+    from agent.a2c_sb3_agent import A2CSB3Agent
+    try:
+        agent = A2CSB3Agent(MODEL_PATH)
+    except Exception as _load_err:
+        print(f"[WARN] A2C SB3 model yüklenemedi: {_load_err}")
+        agent = None
+elif IS_PPO:
     print(f"[INIT] PPO Hardcore Model tespit edildi! Model: {MODEL_PATH}")
     env = GridEnvironment(size=DEFAULT_SIZE, random_maps=True, state_size=102)
     agent = PPOAgent(state_size=102, action_size=5)
@@ -234,7 +244,7 @@ async def health():
 @app.get("/models")
 async def get_models():
     """Mevcut tüm otonom sürüş modellerini ve aktif olanı listele."""
-    # Models klasöründeki tüm pth dosyalarını listele
+    # Models klasöründeki tüm pth, zip ve model klasörlerini listele
     project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     models_dir = os.path.join(project_root, "models")
     
@@ -244,9 +254,13 @@ async def get_models():
         for f in os.listdir(models_dir):
             full_path = os.path.join(models_dir, f)
             if os.path.isdir(full_path):
-                # PPO model folders contain policy.pth
+                # policy.pth içeren klasörleri kontrol et
                 if os.path.exists(os.path.join(full_path, "policy.pth")):
-                    available_models.append({"key": f, "name": f"PPO ({f})", "type": "PPO"})
+                    # Eğer içinde 'data' dosyası varsa ve klasör ismi 'a2c' içeriyorsa A2C modelidir
+                    if os.path.exists(os.path.join(full_path, "data")) and "a2c" in f.lower():
+                        available_models.append({"key": f, "name": f"A2C SB3 ({f})", "type": "A2C_SB3"})
+                    else:
+                        available_models.append({"key": f, "name": f"PPO ({f})", "type": "PPO"})
             elif f.endswith(".pth"):
                 key = f.replace(".pth", "")
                 # Determine model type from filename
@@ -257,41 +271,55 @@ async def get_models():
                     model_type = "DQN"
                     name = f"DQN ({key})"
                 available_models.append({"key": key, "name": name, "type": model_type})
+            elif f.endswith(".zip"):
+                key = f.replace(".zip", "")
+                available_models.append({"key": key, "name": f"A2C SB3 ({key})", "type": "A2C_SB3"})
                 
     # Eger hic PPO model tespit edilemediyse varsayilan olarak listele
     if not any(m["type"] == "PPO" for m in available_models):
         available_models.insert(0, {"key": "ppo_stage_4_hardcore", "name": "PPO (ppo_stage_4_hardcore)", "type": "PPO"})
         
     # Aktif model ismini bul
-    active_key = os.path.basename(MODEL_PATH).replace(".pth", "")
+    active_key = os.path.basename(MODEL_PATH).replace(".pth", "").replace(".zip", "")
     
     return {
         "models": available_models,
         "active_model": active_key
     }
-
-
+ 
+ 
 @app.post("/model/select")
 async def select_model(req: SelectModelRequest):
     """Canlı olarak otonom sürüş modelini değiştir."""
-    global MODEL_PATH, IS_PPO, env, agent, PPO_VIEW_RADIUS
+    global MODEL_PATH, IS_PPO, IS_A2C_SB3, env, agent, PPO_VIEW_RADIUS
     try:
         project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         
         folder_path = os.path.join(project_root, "models", req.model_key)
+        zip_path = os.path.join(project_root, "models", f"{req.model_key}.zip")
+        pth_path = os.path.join(project_root, "models", f"{req.model_key}.pth")
+        
         if os.path.isdir(folder_path):
             new_path = folder_path
+        elif os.path.exists(zip_path):
+            new_path = zip_path
         else:
-            new_path = os.path.join(project_root, "models", f"{req.model_key}.pth")
+            new_path = pth_path
             
         if not os.path.exists(new_path):
             raise HTTPException(status_code=404, detail=f"Model dosyası bulunamadı: {new_path}")
             
         MODEL_PATH = new_path
-        IS_PPO = os.path.exists(os.path.join(MODEL_PATH, "policy.pth")) or "ppo" in MODEL_PATH.lower()
-        IS_A3C = "a3c" in MODEL_PATH.lower()
-
-        if IS_A3C:
+        IS_A2C_SB3 = MODEL_PATH.endswith(".zip") or (os.path.isdir(MODEL_PATH) and os.path.exists(os.path.join(MODEL_PATH, "data")) and "a2c" in req.model_key.lower())
+        IS_PPO = (os.path.exists(os.path.join(MODEL_PATH, "policy.pth")) or "ppo" in MODEL_PATH.lower()) and not IS_A2C_SB3
+        IS_A3C = "a3c" in MODEL_PATH.lower() and not IS_A2C_SB3
+        
+        if IS_A2C_SB3:
+            print(f"[DYNAMIC CHANGE] A2C SB3 modeline geçiliyor: {MODEL_PATH}")
+            env = GridEnvironment(size=DEFAULT_SIZE, random_maps=True, state_size=77)
+            from agent.a2c_sb3_agent import A2CSB3Agent
+            agent = A2CSB3Agent(MODEL_PATH)
+        elif IS_A3C:
             print(f"[DYNAMIC CHANGE] A3C modeline geçiliyor: {MODEL_PATH}")
             checkpoint = torch.load(MODEL_PATH, map_location="cpu", weights_only=False)
             config = checkpoint.get("config", {})
@@ -334,10 +362,11 @@ async def select_model(req: SelectModelRequest):
             agent.load(MODEL_PATH)
             
         print(f"[DYNAMIC CHANGE] Model değişimi başarılı! Aktif model: {req.model_key}")
+        model_type_str = "A2C_SB3" if IS_A2C_SB3 else ("PPO" if IS_PPO else "DQN")
         return {
             "status": "success",
             "active_model": req.model_key,
-            "type": "PPO" if IS_PPO else "DQN",
+            "type": model_type_str,
             "state_size": env.state_size
         }
     except Exception as err:
@@ -714,6 +743,67 @@ def get_a3c_v3_state(env, view_radius: int = 7) -> np.ndarray:
     return np.array(obs, dtype=np.float32)
 
 
+def get_a2c_observation(env):
+    """
+    AutoSimulation GridEnvironment nesnesini OtonomSurus projesindeki
+    77 boyutlu (2 relative hedef + 75 ego grid crop) durum vektörüne dönüştürür.
+    """
+    size = env.size
+    
+    # GridWorldEnv koordinat sistemine dönüştür (x = col, y = size - 1 - row)
+    agent_x = env.agent_pos[1]
+    agent_y = size - 1 - env.agent_pos[0]
+    
+    goal_x = env.goal_pos[1]
+    goal_y = size - 1 - env.goal_pos[0]
+    
+    # 1. Hedefe kalan bağıl konum vektörü (dx, dy)
+    dx = (goal_x - agent_x) / size
+    dy = (goal_y - agent_y) / size
+    goal_vec = np.array([dx, dy], dtype=np.float32)
+    
+    # 2. 5x5x3 boyutunda ego-centric grid
+    ego_grid = np.zeros((5, 5, 3), dtype=np.float32)
+    
+    # Dinamik engelleri (x, y) ve hızlarıyla (vx, vy) haritala
+    dyn_positions_dict = {}
+    if hasattr(env, "dynamic_obstacles") and env.dynamic_obstacles:
+        for obs in env.dynamic_obstacles:
+            obs_x = obs.col
+            obs_y = size - 1 - obs.row
+            # y ekseni ters olduğu için dr yönünü tersliyoruz
+            vx = float(obs.dc)
+            vy = -float(obs.dr)
+            dyn_positions_dict[(obs_x, obs_y)] = (vx, vy)
+            
+    for r_idx, dy_rel in enumerate(range(2, -3, -1)):
+        for c_idx, dx_rel in enumerate(range(-2, 3)):
+            # Manhattan mesafesi kontrolü (Circular radius r=2)
+            if abs(dx_rel) + abs(dy_rel) > 2:
+                continue
+                
+            target_x = agent_x + dx_rel
+            target_y = agent_y + dy_rel
+            
+            target_row = size - 1 - target_y
+            target_col = target_x
+            
+            # Sınır dışı ve statik engel kontrolü (Kanal 0)
+            is_out_of_bounds = (target_row < 0 or target_row >= size or target_col < 0 or target_col >= size)
+            if is_out_of_bounds or (not is_out_of_bounds and env.grid[target_row, target_col] == 1):
+                ego_grid[r_idx, c_idx, 0] = 1.0
+                
+            # Dinamik engel kontrolü (Kanal 1 ve 2)
+            if (target_x, target_y) in dyn_positions_dict:
+                ego_grid[r_idx, c_idx, 1] = 1.0
+                vx, vy = dyn_positions_dict[(target_x, target_y)]
+                ego_grid[r_idx, c_idx, 2] = (vx + vy) / 2.0
+                
+    flat_ego = ego_grid.flatten()
+    observation = np.concatenate([goal_vec, flat_ego]).astype(np.float32)
+    return observation
+
+
 @app.websocket("/ws/simulate")
 async def ws_simulate(ws: WebSocket):
     """
@@ -822,7 +912,26 @@ async def ws_simulate(ws: WebSocket):
                 prev_agent_pos = (env.agent_pos[0], env.agent_pos[1])
 
                 # Durum vektörü ve Inference (Model tipine göre)
-                if IS_PPO:
+                if IS_A2C_SB3:
+                    state = get_a2c_observation(env)
+                    a2c_action = agent.act(state)
+                    
+                    # A2C aksiyon çevirisi: 0=UP, 1=RIGHT, 2=DOWN, 3=LEFT
+                    # AutoSimulation: 0=LEFT, 1=RIGHT, 2=UP, 3=DOWN
+                    a2c_to_autosim = {
+                        0: 2,  # UP -> UP
+                        1: 1,  # RIGHT -> RIGHT
+                        2: 3,  # DOWN -> DOWN
+                        3: 0   # LEFT -> LEFT
+                    }
+                    action = a2c_to_autosim.get(a2c_action, 2)
+                    
+                    # Simülasyon adımı
+                    _, reward, done, info = env.step(action)
+                    q_values = [0.0, 0.0, 0.0, 0.0]
+                    epsilon = 0.0
+                    episode = 1
+                elif IS_PPO:
                     state = get_ppo_observation(env, view_radius=PPO_VIEW_RADIUS)
                     # PPO logits'i alıp frontend Q-değerleri olarak gönderelim
                     state_t = torch.FloatTensor(state).unsqueeze(0)

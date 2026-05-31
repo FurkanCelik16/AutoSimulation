@@ -889,7 +889,7 @@ export default function App() {
           >
             {availableModels.map(m => (
               <option key={m.key} value={m.key} style={{ background: '#0f172a', color: '#fff' }}>
-                {m.type === 'PPO' ? '🤖 PPO' : (m.type === 'A3C' ? '🧠 A3C' : '⚙️ DQN')} - {m.key.toUpperCase()}
+                {m.type === 'PPO' ? '🤖 PPO' : (m.type === 'A3C' ? '🧠 A3C' : (m.type === 'A2C_SB3' ? '🚀 A2C (SB3)' : '⚙️ DQN'))} - {m.key.toUpperCase()}
               </option>
             ))}
           </select>
@@ -919,8 +919,15 @@ export default function App() {
         </div>
       )}
 
+      {/* Backend Hata Toast Bildirimi */}
+      {lastAction && lastAction.error && (
+        <div className="save-toast save-toast--error" role="status" style={{ margin: '10px auto', maxWidth: '480px' }}>
+          ✗ Simülasyon Hatası: {lastAction.error}
+        </div>
+      )}
+
       {/* Ajan Karar Analitiği Dashboard */}
-      {lastAction && (
+      {lastAction && !lastAction.error && lastAction.reward !== undefined && lastAction.q_values !== undefined && (
         <div style={{
           background: 'linear-gradient(135deg, #1e293b 0%, #0f172a 100%)',
           border: '1px solid #38bdf8',

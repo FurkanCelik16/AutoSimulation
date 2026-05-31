@@ -3,7 +3,7 @@
 
 import { useRef, useCallback, useState, useEffect } from 'react';
 
-const WS_URL = import.meta.env.VITE_WS_URL ?? 'wss://pointsense.onrender.com/ws/simulate';
+const WS_URL = import.meta.env.VITE_WS_URL ?? 'ws://localhost:8000/ws/simulate';
 
 /**
  * Backend simülasyon WebSocket'ini yöneten hook.
