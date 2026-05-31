@@ -58,9 +58,37 @@ class A2CSB3Agent:
     def select_action(self, state, training=False):
         return self.act(state)
         
+    def get_action_probs(self, state):
+        """
+        A2C modelinden her bir eylemin (UP, RIGHT, DOWN, LEFT) olasılıklarını alır.
+        """
+        if self.model is None or self.model.policy is None:
+            return np.array([0.25, 0.25, 0.25, 0.25], dtype=np.float32)
+        try:
+            import torch
+            state_arr = np.array(state, dtype=np.float32)
+            obs_tensor, _ = self.model.policy.obs_to_tensor(state_arr)
+            with torch.no_grad():
+                latent_pi, _ = self.model.policy.mlp_extractor(obs_tensor)
+                logits = self.model.policy.action_net(latent_pi)
+                probs = torch.softmax(logits, dim=-1).squeeze(0).cpu().numpy()
+            return probs
+        except Exception as e:
+            print(f"[WARN] Failed to get A2C action probabilities: {e}")
+            return np.array([0.25, 0.25, 0.25, 0.25], dtype=np.float32)
+        
     def get_q_values(self, state):
-        # A2C için gerçek Q değerleri yoktur, bu nedenle boş değer dönüyoruz
-        return np.zeros(self.action_size, dtype=np.float32)
+        """
+        Arayüzde gösterilmek üzere olasılıkları AutoSimulation formatına çevirip döndürür.
+        Format: [LEFT, RIGHT, UP, DOWN]
+        """
+        probs = self.get_action_probs(state)
+        return np.array([
+            probs[3],  # LEFT
+            probs[1],  # RIGHT
+            probs[0],  # UP
+            probs[2],  # DOWN
+        ], dtype=np.float32)
         
     def get_stats(self):
         return {

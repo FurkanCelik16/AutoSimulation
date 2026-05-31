@@ -914,21 +914,65 @@ async def ws_simulate(ws: WebSocket):
                 # Durum vektörü ve Inference (Model tipine göre)
                 if IS_A2C_SB3:
                     state = get_a2c_observation(env)
-                    a2c_action = agent.act(state)
                     
-                    # A2C aksiyon çevirisi: 0=UP, 1=RIGHT, 2=DOWN, 3=LEFT
-                    # AutoSimulation: 0=LEFT, 1=RIGHT, 2=UP, 3=DOWN
-                    a2c_to_autosim = {
-                        0: 2,  # UP -> UP
-                        1: 1,  # RIGHT -> RIGHT
-                        2: 3,  # DOWN -> DOWN
-                        3: 0   # LEFT -> LEFT
-                    }
-                    action = a2c_to_autosim.get(a2c_action, 2)
+                    # 1. A2C eylem olasılıklarını al (AutoSimulation formatında: [LEFT, RIGHT, UP, DOWN])
+                    q_values = agent.get_q_values(state).tolist()
+                    preferred_action = int(np.argmax(q_values))
                     
+                    # 2. Güvenli Eylemler Haritası (Collision Avoidance Safety Shield)
+                    DELTA_MAP = {0: (0, -1), 1: (0, 1), 2: (-1, 0), 3: (1, 0)}
+                    safe_actions = []
+                    for a in range(4):
+                        dr, dc = DELTA_MAP[a]
+                        c_pos = (env.agent_pos[0] + dr, env.agent_pos[1] + dc)
+                        if (0 <= c_pos[0] < env.size and 0 <= c_pos[1] < env.size):
+                            # Statik engeller ve kırmızı ışık kontrolü
+                            if env.grid[c_pos[0], c_pos[1]] == 1:
+                                continue
+                            
+                            # Dinamik engeller (hareketli araçlar) kontrolü
+                            is_dyn_blocked = False
+                            if hasattr(env, "dynamic_obstacles"):
+                                for idx, obs in enumerate(env.dynamic_obstacles):
+                                    if (obs.row, obs.col) == c_pos:
+                                        is_dyn_blocked = True
+                                        break
+                                    if hasattr(env, "prev_dynamic_obstacles") and idx < len(env.prev_dynamic_obstacles):
+                                        prev_obs = env.prev_dynamic_obstacles[idx]
+                                        if (prev_obs.row, prev_obs.col) == c_pos and (obs.row, obs.col) == env.agent_pos:
+                                            is_dyn_blocked = True
+                                            break
+                            if not is_dyn_blocked:
+                                safe_actions.append(a)
+                                
+                    # 3. Salınım / Sıkışma Engelleme (Oscillation Escape)
+                    # Ajan son 6 adımda hep git-gel yapıyorsa sıkışmış kabul edilir
+                    oscillating = (
+                        len(pos_history) >= 6
+                        and len(set(list(pos_history)[-6:])) <= 2
+                    )
+                    
+                    if oscillating:
+                        # Son konumlardan uzaklaşan en yüksek ihtimalli güvenli eylemi seç
+                        recent = set(list(pos_history)[-4:])
+                        escape = [a for a in safe_actions if tuple(np.array(env.agent_pos) + np.array(DELTA_MAP[a])) not in recent]
+                        candidates = escape if escape else safe_actions
+                        
+                        if candidates:
+                            action = int(max(candidates, key=lambda a: q_values[a]))
+                        else:
+                            action = preferred_action
+                    else:
+                        if preferred_action in safe_actions:
+                            action = preferred_action
+                        elif safe_actions:
+                            # Asıl yön güvenli değilse, güvenli alternatiflerden en yüksek ihtimalliyi seç
+                            action = int(max(safe_actions, key=lambda a: q_values[a]))
+                        else:
+                            action = preferred_action
+                            
                     # Simülasyon adımı
                     _, reward, done, info = env.step(action)
-                    q_values = [0.0, 0.0, 0.0, 0.0]
                     epsilon = 0.0
                     episode = 1
                 elif IS_PPO:
