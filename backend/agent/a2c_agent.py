@@ -1,7 +1,7 @@
 import os
 import numpy as np
 
-class A2CSB3Agent:
+class A2CAgent:
     def __init__(self, model_path):
         self.model_path = model_path
         self.model = None
@@ -21,7 +21,7 @@ class A2CSB3Agent:
             
             # Eğer verilen yol bir klasör ise, içindekileri geçici bir zip dosyasına sıkıştırıp yüklüyoruz
             if os.path.isdir(model_path):
-                print(f"[A2C SB3] Klasör yapısı tespit edildi. Zip dosyası oluşturuluyor...")
+                print(f"[A2C] Klasör yapısı tespit edildi. Zip dosyası oluşturuluyor...")
                 temp_dir = tempfile.mkdtemp()
                 temp_zip_path = os.path.join(temp_dir, "temp_model.zip")
                 
@@ -35,16 +35,16 @@ class A2CSB3Agent:
                 self.model = A2C.load(temp_zip_path)
                 # Geçici klasörü temizle
                 shutil.rmtree(temp_dir)
-                print(f"[A2C SB3] Model klasörden başarıyla yüklendi: {model_path}")
+                print(f"[A2C] Model klasörden başarıyla yüklendi: {model_path}")
             else:
                 self.model = A2C.load(model_path)
-                print(f"[A2C SB3] Model zip dosyasından başarıyla yüklendi: {model_path}")
+                print(f"[A2C] Model zip dosyasından başarıyla yüklendi: {model_path}")
         except ImportError:
             print("[WARN] 'stable_baselines3' kütüphanesi kurulu değil!")
             print("[WARN] Lütfen backend venv'inizde kurun: .\\venv\\Scripts\\pip install stable-baselines3 gymnasium")
             raise ImportError("stable-baselines3 is required to load this model.")
         except Exception as e:
-            print(f"[ERROR] A2C SB3 model yükleme hatası: {e}")
+            print(f"[ERROR] A2C model yükleme hatası: {e}")
             raise e
             
     def act(self, state):
@@ -92,7 +92,7 @@ class A2CSB3Agent:
         
     def get_stats(self):
         return {
-            "model_type": "A2C (Stable-Baselines3)",
+            "model_type": "A2C",
             "state_size": self.state_size,
             "action_size": self.action_size,
             "device": str(self.model.device) if self.model else "unknown"

@@ -99,7 +99,7 @@ DEFAULT_SIZE = 15  # Sweet Spot 3 — tüm grid boyutlarında şampiyon
 
 # PPO, DQN veya A2C (SB3) modelini otomatik olarak tespit et ve yükle
 IS_PPO = os.path.exists(os.path.join(MODEL_PATH, "policy.pth")) or "ppo" in MODEL_PATH.lower()
-IS_A2C_SB3 = MODEL_PATH.endswith(".zip") or "a2c" in MODEL_PATH.lower()
+IS_A2C = MODEL_PATH.endswith(".zip") or "a2c" in MODEL_PATH.lower()
 
 # Dynamic view radius mapping for different PPO models
 def get_model_view_radius(model_path: str) -> int:
@@ -122,14 +122,14 @@ print("[INIT] A3C v8: SAF RL (state_size=94) + PPO-benzeri shield AKTIF")
 print("[INIT] Eger bu satiri gormediysen backend eski kod calistiriyor!")
 print("=" * 60)
 
-if IS_A2C_SB3:
-    print(f"[INIT] A2C SB3 Model tespit edildi! Model: {MODEL_PATH}")
+if IS_A2C:
+    print(f"[INIT] A2C Model tespit edildi! Model: {MODEL_PATH}")
     env = GridEnvironment(size=DEFAULT_SIZE, random_maps=True, state_size=77)
-    from agent.a2c_sb3_agent import A2CSB3Agent
+    from agent.a2c_agent import A2CAgent
     try:
-        agent = A2CSB3Agent(MODEL_PATH)
+        agent = A2CAgent(MODEL_PATH)
     except Exception as _load_err:
-        print(f"[WARN] A2C SB3 model yüklenemedi: {_load_err}")
+        print(f"[WARN] A2C model yüklenemedi: {_load_err}")
         agent = None
 elif IS_PPO:
     print(f"[INIT] PPO Hardcore Model tespit edildi! Model: {MODEL_PATH}")
@@ -234,7 +234,7 @@ async def health():
     return {
         "status": "ok",
         "model_loaded": os.path.exists(MODEL_PATH),
-        "model_type": "PPO" if IS_PPO else "DQN",
+        "model_type": "A2C" if IS_A2C else ("PPO" if IS_PPO else "DQN"),
         "device": str(getattr(agent, "device", "cpu")),
         "episode": int(getattr(agent, "episode_count", 0)),
         "state_size": int(env.state_size),
@@ -258,7 +258,7 @@ async def get_models():
                 if os.path.exists(os.path.join(full_path, "policy.pth")):
                     # Eğer içinde 'data' dosyası varsa ve klasör ismi 'a2c' içeriyorsa A2C modelidir
                     if os.path.exists(os.path.join(full_path, "data")) and "a2c" in f.lower():
-                        available_models.append({"key": f, "name": f"A2C SB3 ({f})", "type": "A2C_SB3"})
+                        available_models.append({"key": f, "name": f"A2C ({f})", "type": "A2C"})
                     else:
                         available_models.append({"key": f, "name": f"PPO ({f})", "type": "PPO"})
             elif f.endswith(".pth"):
@@ -273,7 +273,7 @@ async def get_models():
                 available_models.append({"key": key, "name": name, "type": model_type})
             elif f.endswith(".zip"):
                 key = f.replace(".zip", "")
-                available_models.append({"key": key, "name": f"A2C SB3 ({key})", "type": "A2C_SB3"})
+                available_models.append({"key": key, "name": f"A2C ({key})", "type": "A2C"})
                 
     # Eger hic PPO model tespit edilemediyse varsayilan olarak listele
     if not any(m["type"] == "PPO" for m in available_models):
@@ -291,7 +291,7 @@ async def get_models():
 @app.post("/model/select")
 async def select_model(req: SelectModelRequest):
     """Canlı olarak otonom sürüş modelini değiştir."""
-    global MODEL_PATH, IS_PPO, IS_A2C_SB3, env, agent, PPO_VIEW_RADIUS
+    global MODEL_PATH, IS_PPO, IS_A2C, env, agent, PPO_VIEW_RADIUS
     try:
         project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         
@@ -310,15 +310,15 @@ async def select_model(req: SelectModelRequest):
             raise HTTPException(status_code=404, detail=f"Model dosyası bulunamadı: {new_path}")
             
         MODEL_PATH = new_path
-        IS_A2C_SB3 = MODEL_PATH.endswith(".zip") or (os.path.isdir(MODEL_PATH) and os.path.exists(os.path.join(MODEL_PATH, "data")) and "a2c" in req.model_key.lower())
-        IS_PPO = (os.path.exists(os.path.join(MODEL_PATH, "policy.pth")) or "ppo" in MODEL_PATH.lower()) and not IS_A2C_SB3
-        IS_A3C = "a3c" in MODEL_PATH.lower() and not IS_A2C_SB3
+        IS_A2C = MODEL_PATH.endswith(".zip") or (os.path.isdir(MODEL_PATH) and os.path.exists(os.path.join(MODEL_PATH, "data")) and "a2c" in req.model_key.lower())
+        IS_PPO = (os.path.exists(os.path.join(MODEL_PATH, "policy.pth")) or "ppo" in MODEL_PATH.lower()) and not IS_A2C
+        IS_A3C = "a3c" in MODEL_PATH.lower() and not IS_A2C
         
-        if IS_A2C_SB3:
-            print(f"[DYNAMIC CHANGE] A2C SB3 modeline geçiliyor: {MODEL_PATH}")
+        if IS_A2C:
+            print(f"[DYNAMIC CHANGE] A2C modeline geçiliyor: {MODEL_PATH}")
             env = GridEnvironment(size=DEFAULT_SIZE, random_maps=True, state_size=77)
-            from agent.a2c_sb3_agent import A2CSB3Agent
-            agent = A2CSB3Agent(MODEL_PATH)
+            from agent.a2c_agent import A2CAgent
+            agent = A2CAgent(MODEL_PATH)
         elif IS_A3C:
             print(f"[DYNAMIC CHANGE] A3C modeline geçiliyor: {MODEL_PATH}")
             checkpoint = torch.load(MODEL_PATH, map_location="cpu", weights_only=False)
@@ -362,7 +362,7 @@ async def select_model(req: SelectModelRequest):
             agent.load(MODEL_PATH)
             
         print(f"[DYNAMIC CHANGE] Model değişimi başarılı! Aktif model: {req.model_key}")
-        model_type_str = "A2C_SB3" if IS_A2C_SB3 else ("PPO" if IS_PPO else "DQN")
+        model_type_str = "A2C" if IS_A2C else ("PPO" if IS_PPO else "DQN")
         return {
             "status": "success",
             "active_model": req.model_key,
@@ -758,8 +758,8 @@ def get_a2c_observation(env):
     goal_y = size - 1 - env.goal_pos[0]
     
     # 1. Hedefe kalan bağıl konum vektörü (dx, dy)
-    dx = (goal_x - agent_x) / size
-    dy = (goal_y - agent_y) / size
+    dx = (goal_x - agent_x) / 20.0
+    dy = (goal_y - agent_y) / 20.0
     goal_vec = np.array([dx, dy], dtype=np.float32)
     
     # 2. 5x5x3 boyutunda ego-centric grid
@@ -818,6 +818,7 @@ async def ws_simulate(ws: WebSocket):
 
     from collections import deque as _deque
     pos_history = _deque(maxlen=10)  # Stuck detection için pozisyon geçmişi
+    visit_counts = {}  # A2C döngü engelleme için ziyaret sayıları
 
     try:
         while True:
@@ -860,6 +861,8 @@ async def ws_simulate(ws: WebSocket):
                         env.steps_taken = 0
                         env._prev_dist = float(abs(start[0] - goal[0]) + abs(start[1] - goal[1]))
                         env._visited = {start: 1}
+                        visit_counts.clear()
+                        visit_counts[start] = 1
                         if IS_PPO:
                             if hasattr(env, "visit_map"): delattr(env, "visit_map")
                             if hasattr(env, "action_history"): delattr(env, "action_history")
@@ -912,7 +915,7 @@ async def ws_simulate(ws: WebSocket):
                 prev_agent_pos = (env.agent_pos[0], env.agent_pos[1])
 
                 # Durum vektörü ve Inference (Model tipine göre)
-                if IS_A2C_SB3:
+                if IS_A2C:
                     state = get_a2c_observation(env)
                     
                     # 1. A2C eylem olasılıklarını al (AutoSimulation formatında: [LEFT, RIGHT, UP, DOWN])
@@ -945,31 +948,26 @@ async def ws_simulate(ws: WebSocket):
                             if not is_dyn_blocked:
                                 safe_actions.append(a)
                                 
-                    # 3. Salınım / Sıkışma Engelleme (Oscillation Escape)
-                    # Ajan son 6 adımda hep git-gel yapıyorsa sıkışmış kabul edilir
-                    oscillating = (
-                        len(pos_history) >= 6
-                        and len(set(list(pos_history)[-6:])) <= 2
-                    )
-                    
-                    if oscillating:
-                        # Son konumlardan uzaklaşan en yüksek ihtimalli güvenli eylemi seç
-                        recent = set(list(pos_history)[-4:])
-                        escape = [a for a in safe_actions if tuple(np.array(env.agent_pos) + np.array(DELTA_MAP[a])) not in recent]
-                        candidates = escape if escape else safe_actions
+                    # 3. Ziyaret Cezalı Karar Mekanizması (Visitation Penalty Shield)
+                    # A2C hafızasız olduğu için döngüye girmesini önlemek üzere ziyaret sayısına göre ceza uygularız
+                    if safe_actions:
+                        def get_action_score(a):
+                            dr, dc = DELTA_MAP[a]
+                            next_pos = (env.agent_pos[0] + dr, env.agent_pos[1] + dc)
+                            visits = visit_counts.get(next_pos, 0)
+                            
+                            # Hedefe olan Manhattan mesafesi farkı (hedefe yaklaştıkça mesafe azalır, fark pozitif olur)
+                            curr_dist = abs(env.agent_pos[0] - env.goal_pos[0]) + abs(env.agent_pos[1] - env.goal_pos[1])
+                            next_dist = abs(next_pos[0] - env.goal_pos[0]) + abs(next_pos[1] - env.goal_pos[1])
+                            dist_diff = curr_dist - next_dist
+                            
+                            # Skor formülü: model olasılığı + mesafe kazancı - ziyaret cezası
+                            score = q_values[a] + 0.15 * dist_diff - 0.45 * visits
+                            return score
                         
-                        if candidates:
-                            action = int(max(candidates, key=lambda a: q_values[a]))
-                        else:
-                            action = preferred_action
+                        action = int(max(safe_actions, key=get_action_score))
                     else:
-                        if preferred_action in safe_actions:
-                            action = preferred_action
-                        elif safe_actions:
-                            # Asıl yön güvenli değilse, güvenli alternatiflerden en yüksek ihtimalliyi seç
-                            action = int(max(safe_actions, key=lambda a: q_values[a]))
-                        else:
-                            action = preferred_action
+                        action = preferred_action
                             
                     # Simülasyon adımı
                     _, reward, done, info = env.step(action)
@@ -1161,13 +1159,15 @@ async def ws_simulate(ws: WebSocket):
                         "agent_pos": {"x": int(c - half), "y": int(half - r)}
                     })
                     pos_history.clear()
+                    visit_counts.clear()
                     env.reset()
                     if IS_PPO:
                         if hasattr(env, "visit_map"): delattr(env, "visit_map")
                         if hasattr(env, "action_history"): delattr(env, "action_history")
                     continue
 
-                # Ziyaret haritasını güncelle (PPO)
+                # Ziyaret haritasını güncelle (A2C & PPO)
+                visit_counts[env.agent_pos] = visit_counts.get(env.agent_pos, 0) + 1
                 if IS_PPO:
                     if not hasattr(env, "visit_map"):
                         env.visit_map = np.zeros((env.size, env.size), dtype=np.float32)
@@ -1200,6 +1200,7 @@ async def ws_simulate(ws: WebSocket):
 
                 if done:
                     pos_history.clear()
+                    visit_counts.clear()
                     env.reset()
                     if IS_PPO:
                         if hasattr(env, "visit_map"): delattr(env, "visit_map")
