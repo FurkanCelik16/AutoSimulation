@@ -64,6 +64,42 @@ const getProbabilities = (qValues) => {
 export default function App() {
   const [size, setSize] = useState(DEFAULT_SIZE);
   const [baseGrid, setBaseGrid] = useState(() => createEmptyGrid(DEFAULT_SIZE));
+  const [theme, setTheme] = useState('city'); // 'city' | 'warehouse' | 'mars' | 'hospital'
+
+  const themeLabels = {
+    city: {
+      agent: '🚗 Yapay Zeka Ajanı (Araba)',
+      obstacle: '⬛ Sabit Engel (Bina)',
+      dynamic: '🔮 Hareketli Engel (Spor Araba)',
+      waypoint: '📍 Duraklar (Otobüs Durağı)',
+      goal: '🎯 Hedef (Altın Kupa)',
+      traffic: '🚦 Trafik Işıkları'
+    },
+    warehouse: {
+      agent: '🤖 AMR Taşıyıcı Robot',
+      obstacle: '📦 Sabit Engel (Depo Rafı)',
+      dynamic: '🚜 Hareketli Engel (Forklift)',
+      waypoint: '📍 Duraklar (Teslimat Bölgesi)',
+      goal: '🎯 Hedef (Yükleme Rampası)',
+      traffic: '🚦 Güvenlik Bariyerleri'
+    },
+    mars: {
+      agent: '🛰️ Mars Rover Keşif Aracı',
+      obstacle: '🪨 Sabit Engel (Uzay Krateri / Kaya)',
+      dynamic: '🌪️ Hareketli Engel (Kum Fırtınası)',
+      waypoint: '📍 Duraklar (Sondaj Noktası)',
+      goal: '🎯 Hedef (Ana Araştırma Üssü)',
+      traffic: '🚦 Telemetri Beacon İstasyonu'
+    },
+    hospital: {
+      agent: '💊 Medikal Dağıtım Kapsülü',
+      obstacle: '🏥 Sabit Engel (İlaç Dolabı / Cihaz)',
+      dynamic: '👤 Hareketli Engel (Hastane Görevlisi)',
+      waypoint: '📍 Duraklar (Hasta Yatağı)',
+      goal: '🎯 Hedef (Merkezi Eczane)',
+      traffic: '🚦 Steril Bölge Kapıları'
+    }
+  };
   const [dynamicObstacles, setDynamicObstacles] = useState([]);
   const dynamicObstaclesRef = useRef([]);
 
@@ -781,6 +817,38 @@ export default function App() {
         </div>
         <div className="control-divider" />
 
+        {/* 🗺️ Simülasyon Teması Seçici */}
+        <div className="control-group">
+          <label htmlFor="theme-select" style={{ color: '#a855f7', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '4px' }}>
+            🗺️ Tema:
+          </label>
+          <select
+            id="theme-select"
+            className="select-theme btn btn-secondary"
+            value={theme}
+            onChange={(e) => setTheme(e.target.value)}
+            style={{
+              background: 'linear-gradient(135deg, #2e1065 0%, #0f172a 100%)',
+              color: '#c084fc',
+              border: '1px solid #7c3aed',
+              boxShadow: '0 0 10px rgba(124, 58, 237, 0.2)',
+              borderRadius: '6px',
+              padding: '6px 10px',
+              cursor: 'pointer',
+              fontWeight: 'bold',
+              fontFamily: 'monospace',
+              outline: 'none',
+              transition: 'all 0.3s'
+            }}
+          >
+            <option value="city" style={{ background: '#0f172a', color: '#fff' }}>🚗 Şehir</option>
+            <option value="warehouse" style={{ background: '#0f172a', color: '#fff' }}>📦 Depo</option>
+            <option value="mars" style={{ background: '#0f172a', color: '#fff' }}>🚀 Mars</option>
+            <option value="hospital" style={{ background: '#0f172a', color: '#fff' }}>🏥 Hastane</option>
+          </select>
+        </div>
+        <div className="control-divider" />
+
         {/* Harita adı input */}
         <div className="control-group">
           <input
@@ -953,6 +1021,7 @@ export default function App() {
           dynamicObstacles={dynamicObstacles}
           lastAction={lastAction}
           simSpeed={simSpeed}
+          theme={theme}
         />
       ) : (
         <Grid grid={displayGrid} onCellClick={handleCellClick}
@@ -961,12 +1030,12 @@ export default function App() {
 
       <div className="legend" role="list">
         <div className="legend-item"><span className="legend-dot legend-dot--start" />Başlangıç {startCoord ? `(${startCoord.x},${startCoord.y})` : '— seçilmedi'}</div>
-        <div className="legend-item"><span className="legend-dot legend-dot--agent" />Yapay Zeka (Ajan)</div>
-        <div className="legend-item"><span className="legend-dot" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: '14px', width: '12px', height: '12px' }}>📍</span>Duraklar {waypoints.length > 0 ? waypoints.map(w => { const c = indexToCoord(w.row, w.col, size); return `(${c.x},${c.y})`; }).join(', ') : '— seçilmedi'}</div>
-        <div className="legend-item"><span className="legend-dot" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: '14px', width: '12px', height: '12px' }}>🚦</span>Trafik Işıkları ({lightsGreen ? '🟩 YEŞİL' : '🟥 KIRMIZI'})</div>
-        <div className="legend-item"><span className="legend-dot legend-dot--goal" />Hedef {goalCoord ? `(${goalCoord.x},${goalCoord.y})` : '— seçilmedi'}</div>
-        <div className="legend-item"><span className="legend-dot legend-dot--obstacle" />Sabit Engel</div>
-        <div className="legend-item"><span className="legend-dot legend-dot--dynamic" />Hareketli Engel</div>
+        <div className="legend-item"><span className="legend-dot legend-dot--agent" />{themeLabels[theme]?.agent ?? 'Ajan'}</div>
+        <div className="legend-item"><span className="legend-dot" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: '14px', width: '12px', height: '12px' }}>📍</span>{themeLabels[theme]?.waypoint ?? 'Duraklar'} {waypoints.length > 0 ? waypoints.map(w => { const c = indexToCoord(w.row, w.col, size); return `(${c.x},${c.y})`; }).join(', ') : '— seçilmedi'}</div>
+        <div className="legend-item"><span className="legend-dot" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: '14px', width: '12px', height: '12px' }}>🚦</span>{themeLabels[theme]?.traffic ?? 'Sinyalizasyon'} ({lightsGreen ? '🟩 YEŞİL / AKTİF' : '🟥 KIRMIZI / DUR'})</div>
+        <div className="legend-item"><span className="legend-dot legend-dot--goal" />{themeLabels[theme]?.goal ?? 'Hedef'} {goalCoord ? `(${goalCoord.x},${goalCoord.y})` : '— seçilmedi'}</div>
+        <div className="legend-item"><span className="legend-dot legend-dot--obstacle" />{themeLabels[theme]?.obstacle ?? 'Sabit Engel'}</div>
+        <div className="legend-item"><span className="legend-dot legend-dot--dynamic" />{themeLabels[theme]?.dynamic ?? 'Hareketli Engel'}</div>
         <div className="legend-item legend-item--axis"><span className="legend-axis-icon">＋</span>Orijin (0,0)</div>
       </div>
 
