@@ -241,8 +241,8 @@ class AutonomousDriverEnv:
 
         return np.array(obs, dtype=np.float32)
 
-def get_a3c_v3_state(env, view_radius: int = 7) -> np.ndarray:
-    """A3C v3 (state_size=94) için zengin state. Koordinat çelişkilerini çözmek için row-col uzayına mapler."""
+def get_a2c_v3_state(env, view_radius: int = 7) -> np.ndarray:
+    """A2C v3 (state_size=94) için zengin state. Koordinat çelişkilerini çözmek için row-col uzayına mapler."""
     import math as _math
     local_agent_pos = (env.agent_pos[1], env.agent_pos[0])  # (row, col)
     local_goal_pos = (env.goal_pos[1], env.goal_pos[0])    # (row, col)
@@ -457,7 +457,7 @@ def run_benchmark(model_key, env, num_episodes=100):
         while not done:
             if is_dql:
                 if "a3c" in model_key.lower():
-                    sliced_obs = get_a3c_v3_state(env, env.view_radius)
+                    sliced_obs = get_a2c_v3_state(env, env.view_radius)
                     q_values = agent.get_q_values(sliced_obs)
                     
                     # A3C v3 Safety Shield (PPO-benzeri kalkan)
@@ -551,7 +551,7 @@ if __name__ == "__main__":
         ("ppo_sweetspot_3",     "PPO Sweet Spot 3 (NEW)"),
         ("ppo_stage_4_hardcore","PPO v4 Hardcore"),
         ("best_model_v4.pth",    "DQN v4"),
-        ("a3c_v3.pth",           "A3C v3"),
+        ("a2c_v3.pth",           "A2C v3"),
     ]
 
     GRIDS = [

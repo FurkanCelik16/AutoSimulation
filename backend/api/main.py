@@ -156,7 +156,7 @@ else:
     except Exception as _read_err:
         print(f"[WARN] Checkpoint okunamadı: {_read_err}")
 
-    IS_A3C_INIT = "a3c" in MODEL_PATH.lower()
+    IS_A3C_INIT = "a3c" in MODEL_PATH.lower() or "a2c" in MODEL_PATH.lower()
     env_state_size = state_size if state_size in (12, 16) else 16
     env = GridEnvironment(size=DEFAULT_SIZE, random_maps=True, state_size=env_state_size)
     if IS_A3C_INIT:
@@ -265,7 +265,10 @@ async def get_models():
             elif f.endswith(".pth"):
                 key = f.replace(".pth", "")
                 # Determine model type from filename
-                if "a3c" in key.lower():
+                if "a2c" in key.lower():
+                    model_type = "A2C"
+                    name = f"A2C ({key})"
+                elif "a3c" in key.lower():
                     model_type = "A3C"
                     name = f"A3C ({key})"
                 else:
@@ -313,7 +316,7 @@ async def select_model(req: SelectModelRequest):
         MODEL_PATH = new_path
         IS_A2C = MODEL_PATH.endswith(".zip") or (os.path.isdir(MODEL_PATH) and os.path.exists(os.path.join(MODEL_PATH, "data")) and "a2c" in req.model_key.lower())
         IS_PPO = (os.path.exists(os.path.join(MODEL_PATH, "policy.pth")) or "ppo" in MODEL_PATH.lower()) and not IS_A2C
-        IS_A3C = "a3c" in MODEL_PATH.lower() and not IS_A2C
+        IS_A3C = ("a3c" in MODEL_PATH.lower() or "a2c" in MODEL_PATH.lower()) and not IS_A2C
         
         if IS_A2C:
             print(f"[DYNAMIC CHANGE] A2C modeline geçiliyor: {MODEL_PATH}")
@@ -321,7 +324,7 @@ async def select_model(req: SelectModelRequest):
             from agent.a2c_agent import A2CAgent
             agent = A2CAgent(MODEL_PATH)
         elif IS_A3C:
-            print(f"[DYNAMIC CHANGE] A3C modeline geçiliyor: {MODEL_PATH}")
+            print(f"[DYNAMIC CHANGE] A2C/A3C modeline geçiliyor: {MODEL_PATH}")
             checkpoint = torch.load(MODEL_PATH, map_location="cpu", weights_only=False)
             config = checkpoint.get("config", {})
             state_size = config.get("state_size", 16)
@@ -335,7 +338,7 @@ async def select_model(req: SelectModelRequest):
             agent.network.load_state_dict(checkpoint["network_state"])
             agent.episode_count = checkpoint.get("episode_count", 0)
             agent.total_steps = checkpoint.get("total_steps", 0)
-            print(f"[DYNAMIC CHANGE] A3C model yüklendi! (state_size={state_size}, hidden={hidden_size}, Episodes: {agent.episode_count})")
+            print(f"[DYNAMIC CHANGE] A2C/A3C model yüklendi! (state_size={state_size}, hidden={hidden_size}, Episodes: {agent.episode_count})")
         elif IS_PPO:
             PPO_VIEW_RADIUS = get_model_view_radius(MODEL_PATH)
             print(f"[DYNAMIC CHANGE] PPO modeline geçiliyor: {MODEL_PATH} (View Radius: {PPO_VIEW_RADIUS})")
@@ -689,8 +692,8 @@ def get_ppo_observation(env, view_radius=7):
     return np.array(obs, dtype=np.float32)
 
 
-def get_a3c_v3_state(env, view_radius: int = 7) -> np.ndarray:
-    """A3C v3 (state_size=94) için zengin state.
+def get_a2c_v3_state(env, view_radius: int = 7) -> np.ndarray:
+    """A2C v3 (state_size=94) için zengin state.
     8 yön ışın (32) + hedef (5) + visit_map 5x5 (25) + action_history 8x4 (32).
     env.visit_map_a3c ve env.action_history_a3c attribute'ları lazy initialize."""
     import math as _math
@@ -954,7 +957,7 @@ async def ws_simulate(ws: WebSocket):
                     DELTA_MAP = {0: (0, -1), 1: (0, 1), 2: (-1, 0), 3: (1, 0)}
 
                     if is_a3c_agent and agent.state_size == 94:
-                        state = get_a3c_v3_state(env, view_radius=7)
+                        state = get_a2c_v3_state(env, view_radius=7)
                         q_values = agent.get_q_values(state)
                         action = int(np.argmax(q_values))
 
