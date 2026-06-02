@@ -1,4 +1,3 @@
-# Python
 __pycache__/
 *.pyc
 *.pyo
@@ -51,3 +50,7 @@ otonomModel/models/*_ep*.pth
 test_*.py
 *_FIX.md
 *_SUMMARY.md
+backend/venv_wsl/
+backend/sac_tensorboard/
+backend/models/*.zip
+!backend/models/sac_local.zip

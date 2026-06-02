@@ -97,9 +97,10 @@ MODEL_PATH = os.path.join(
 )
 DEFAULT_SIZE = 15
 
-# PPO, DQN veya A2C (SB3) modelini otomatik olarak tespit et ve yükle
-IS_PPO = os.path.exists(os.path.join(MODEL_PATH, "policy.pth")) or "ppo" in MODEL_PATH.lower()
-IS_A2C = MODEL_PATH.endswith(".zip") or "a2c" in MODEL_PATH.lower()
+# PPO, DQN, A2C, SAC (SB3) modelini otomatik olarak tespit et ve yükle
+IS_SAC = "sac" in MODEL_PATH.lower()
+IS_A2C = (MODEL_PATH.endswith(".zip") and not IS_SAC) or "a2c" in MODEL_PATH.lower()
+IS_PPO = (os.path.exists(os.path.join(MODEL_PATH, "policy.pth")) or "ppo" in MODEL_PATH.lower()) and not IS_SAC and not IS_A2C
 
 # Dynamic view radius mapping for different PPO models
 def get_model_view_radius(model_path: str) -> int:
@@ -131,6 +132,15 @@ if IS_A2C:
         agent = A2CAgent(MODEL_PATH)
     except Exception as _load_err:
         print(f"[WARN] A2C model yüklenemedi: {_load_err}")
+        agent = None
+elif IS_SAC:
+    print(f"[INIT] SAC Model tespit edildi! Model: {MODEL_PATH}")
+    env = GridEnvironment(size=DEFAULT_SIZE, random_maps=True, state_size=102)
+    from agent.sac_agent import SACAgent
+    try:
+        agent = SACAgent(MODEL_PATH)
+    except Exception as _load_err:
+        print(f"[WARN] SAC model yüklenemedi: {_load_err}")
         agent = None
 elif IS_PPO:
     print(f"[INIT] PPO Hardcore Model tespit edildi! Model: {MODEL_PATH}")
@@ -235,7 +245,7 @@ async def health():
     return {
         "status": "ok",
         "model_loaded": os.path.exists(MODEL_PATH),
-        "model_type": "A2C" if IS_A2C else ("PPO" if IS_PPO else "DQN"),
+        "model_type": "SAC" if IS_SAC else ("A2C" if IS_A2C else ("PPO" if IS_PPO else "DQN")),
         "device": str(getattr(agent, "device", "cpu")),
         "episode": int(getattr(agent, "episode_count", 0)),
         "state_size": int(env.state_size),
@@ -260,6 +270,8 @@ async def get_models():
                     # Eğer içinde 'data' dosyası varsa ve klasör ismi 'a2c' içeriyorsa A2C modelidir
                     if os.path.exists(os.path.join(full_path, "data")) and "a2c" in f.lower():
                         available_models.append({"key": f, "name": f"A2C ({f})", "type": "A2C"})
+                    elif "sac" in f.lower():
+                        available_models.append({"key": f, "name": f"SAC ({f})", "type": "SAC"})
                     else:
                         available_models.append({"key": f, "name": f"PPO ({f})", "type": "PPO"})
             elif f.endswith(".pth"):
@@ -307,7 +319,7 @@ async def get_models():
 @app.post("/model/select")
 async def select_model(req: SelectModelRequest):
     """Canlı olarak otonom sürüş modelini değiştir."""
-    global MODEL_PATH, IS_PPO, IS_A2C, env, agent, PPO_VIEW_RADIUS
+    global MODEL_PATH, IS_PPO, IS_A2C, IS_SAC, env, agent, PPO_VIEW_RADIUS
     try:
         project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         
@@ -326,11 +338,18 @@ async def select_model(req: SelectModelRequest):
             raise HTTPException(status_code=404, detail=f"Model dosyası bulunamadı: {new_path}")
             
         MODEL_PATH = new_path
-        IS_A2C = MODEL_PATH.endswith(".zip") or (os.path.isdir(MODEL_PATH) and os.path.exists(os.path.join(MODEL_PATH, "data")) and "a2c" in req.model_key.lower())
-        IS_PPO = (os.path.exists(os.path.join(MODEL_PATH, "policy.pth")) or "ppo" in MODEL_PATH.lower()) and not IS_A2C
+        IS_SAC = "sac" in req.model_key.lower()
+        IS_A2C = (MODEL_PATH.endswith(".zip") and not IS_SAC) or (os.path.isdir(MODEL_PATH) and os.path.exists(os.path.join(MODEL_PATH, "data")) and "a2c" in req.model_key.lower())
+        IS_PPO = (os.path.exists(os.path.join(MODEL_PATH, "policy.pth")) or "ppo" in MODEL_PATH.lower()) and not IS_SAC and not IS_A2C
         IS_A3C = ("a3c" in MODEL_PATH.lower() or "a2c" in MODEL_PATH.lower()) and not IS_A2C
         
-        if IS_A2C:
+        if IS_SAC:
+            PPO_VIEW_RADIUS = get_model_view_radius(MODEL_PATH)
+            print(f"[DYNAMIC CHANGE] SAC modeline geçiliyor: {MODEL_PATH}")
+            env = GridEnvironment(size=DEFAULT_SIZE, random_maps=True, state_size=102)
+            from agent.sac_agent import SACAgent
+            agent = SACAgent(MODEL_PATH)
+        elif IS_A2C:
             print(f"[DYNAMIC CHANGE] A2C modeline geçiliyor: {MODEL_PATH}")
             env = GridEnvironment(size=DEFAULT_SIZE, random_maps=True, state_size=77)
             from agent.a2c_agent import A2CAgent
@@ -378,7 +397,7 @@ async def select_model(req: SelectModelRequest):
             agent.load(MODEL_PATH)
             
         print(f"[DYNAMIC CHANGE] Model değişimi başarılı! Aktif model: {req.model_key}")
-        model_type_str = "A2C" if IS_A2C else ("PPO" if IS_PPO else "DQN")
+        model_type_str = "SAC" if IS_SAC else ("A2C" if IS_A2C else ("PPO" if IS_PPO else "DQN"))
         return {
             "status": "success",
             "active_model": req.model_key,
@@ -956,6 +975,27 @@ async def ws_simulate(ws: WebSocket):
 
                     q_values = [float(logits[0]), float(logits[1]),
                                 float(logits[2]), float(logits[3])]
+
+                    if action == 4:  # STAY
+                        reward = -0.05
+                        env.steps_taken += 1
+                        done = env.steps_taken >= env.max_steps
+                        info = {"reached_goal": False, "steps": env.steps_taken}
+                    else:
+                        _, reward, done, info = env.step(action)
+
+                    epsilon = 0.0
+                    episode = 1
+                elif IS_SAC:
+                    state = get_ppo_observation(env, view_radius=PPO_VIEW_RADIUS)
+                    q_values = agent.get_q_values(state).tolist()
+                    action = int(np.argmax(q_values))
+                    
+                    # Aksiyon geçmişini güncelle
+                    action_oh = [0.0]*5
+                    action_oh[action] = 1.0
+                    if hasattr(env, "action_history"):
+                        env.action_history.append(action_oh)
 
                     if action == 4:  # STAY
                         reward = -0.05

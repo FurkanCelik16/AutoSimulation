@@ -1637,7 +1637,7 @@ export default function App() {
           >
             {availableModels.map(m => (
               <option key={m.key} value={m.key} style={{ background: '#0f172a', color: '#fff' }}>
-                {m.type === 'PPO' ? '🤖 PPO' : (m.type === 'A3C' ? '🧠 A3C' : (m.type === 'A2C' ? '🚀 A2C' : '⚙️ DQN'))} - {m.key.toUpperCase()}
+                {m.type === 'SAC' ? '🌀 SAC' : (m.type === 'PPO' ? '🤖 PPO' : (m.type === 'A3C' ? '🧠 A3C' : (m.type === 'A2C' ? '🚀 A2C' : '⚙️ DQN')))} - {m.key.toUpperCase()}
               </option>
             ))}
           </select>
