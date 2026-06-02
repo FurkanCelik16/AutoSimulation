@@ -1196,8 +1196,8 @@ def load_model_by_key(model_key: str):
         view_radius = get_model_view_radius(model_path)
         return {"agent": agent_obj, "type": "PPO", "state_size": 102, "view_radius": view_radius}
     elif model_type == "SAC":
-        from stable_baselines3 import SAC
-        agent_obj = SAC.load(model_path)
+        from agent.sac_agent import SACAgent
+        agent_obj = SACAgent(model_path)
         return {"agent": agent_obj, "type": "SAC", "state_size": 102, "view_radius": 4}
     elif model_type == "A2C":
         from agent.a2c_agent import A2CAgent
@@ -1468,15 +1468,9 @@ async def ws_race(ws: WebSocket):
 
                         elif m_type == "SAC":
                             state = get_ppo_observation(env, view_radius=4)
-                            action_cont, _ = m_agent.predict(state, deterministic=True)
-                            ay, ax = action_cont[0], action_cont[1]
-                            if abs(ax) < 0.15 and abs(ay) < 0.15:
-                                action = 4
-                            elif abs(ay) > abs(ax):
-                                action = 3 if ay > 0 else 2
-                            else:
-                                action = 1 if ax > 0 else 0
-                            q_vals = [float(ay), float(ax), 0.0, 0.0]
+                            q_values_arr = m_agent.get_q_values(state)
+                            action = int(np.argmax(q_values_arr))
+                            q_vals = [float(x) for x in q_values_arr[:4]]
 
                             action_oh = [0.0]*5
                             action_oh[action] = 1.0
