@@ -10,7 +10,7 @@ neredeyse aynı yapı:
   - Aksiyon geçmişi 8 step × 4 action (32)
 Toplam: 32 + 5 + 25 + 32 = 94 eleman.
 
-Cikti: backend/models/a3c_v3.pth
+Cikti: backend/models/a2c_v3.pth
 """
 from __future__ import annotations
 
@@ -62,8 +62,8 @@ DEFAULT_CONFIG = {
 
     "save_every_updates": 5_000,
     "log_every_updates": 50,
-    "model_path": "backend/models/a3c_v3.pth",
-    "stats_path": "backend/models/training_stats_a3c_v3.json",
+    "model_path": "backend/models/a2c_v3.pth",
+    "stats_path": "backend/models/training_stats_a2c_v3.json",
 }
 
 # Curriculum: dengeli (bos -> engel -> dinamik -> kose/yakin)

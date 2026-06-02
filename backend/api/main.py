@@ -99,8 +99,7 @@ DEFAULT_SIZE = 15
 
 # PPO, DQN veya A2C (SB3) modelini otomatik olarak tespit et ve yükle
 IS_PPO = os.path.exists(os.path.join(MODEL_PATH, "policy.pth")) or "ppo" in MODEL_PATH.lower()
-IS_SAC = "a2c_v2" in MODEL_PATH.lower()
-IS_A2C = (MODEL_PATH.endswith(".zip") or "a2c" in MODEL_PATH.lower()) and not IS_SAC
+IS_A2C = MODEL_PATH.endswith(".zip") or "a2c" in MODEL_PATH.lower()
 
 # Dynamic view radius mapping for different PPO models
 def get_model_view_radius(model_path: str) -> int:
@@ -124,16 +123,7 @@ print("=" * 60)
 print("[INIT] Tüm modeller kalkansız (saf sinir ağı) modunda çalışıyor.")
 print("=" * 60)
 
-if IS_SAC:
-    print(f"[INIT] SAC Model tespit edildi! Model: {MODEL_PATH}")
-    env = GridEnvironment(size=DEFAULT_SIZE, random_maps=True, state_size=102)
-    from agent.sac_agent import SACAgent
-    try:
-        agent = SACAgent(MODEL_PATH)
-    except Exception as _load_err:
-        print(f"[WARN] SAC model yüklenemedi: {_load_err}")
-        agent = None
-elif IS_A2C:
+if IS_A2C:
     print(f"[INIT] A2C Model tespit edildi! Model: {MODEL_PATH}")
     env = GridEnvironment(size=DEFAULT_SIZE, random_maps=True, state_size=77)
     from agent.a2c_agent import A2CAgent
@@ -166,7 +156,7 @@ else:
     except Exception as _read_err:
         print(f"[WARN] Checkpoint okunamadı: {_read_err}")
 
-    IS_A3C_INIT = "a3c" in MODEL_PATH.lower()
+    IS_A3C_INIT = "a3c" in MODEL_PATH.lower() or "a2c" in MODEL_PATH.lower()
     env_state_size = state_size if state_size in (12, 16) else 16
     env = GridEnvironment(size=DEFAULT_SIZE, random_maps=True, state_size=env_state_size)
     if IS_A3C_INIT:
@@ -268,16 +258,17 @@ async def get_models():
                 # policy.pth içeren klasörleri kontrol et
                 if os.path.exists(os.path.join(full_path, "policy.pth")):
                     # Eğer içinde 'data' dosyası varsa ve klasör ismi 'a2c' içeriyorsa A2C modelidir
-                    if os.path.exists(os.path.join(full_path, "data")) and "a2c_v2" in f.lower():
-                        available_models.append({"key": f, "name": f"SAC ({f})", "type": "SAC"})
-                    elif os.path.exists(os.path.join(full_path, "data")) and "a2c" in f.lower():
+                    if os.path.exists(os.path.join(full_path, "data")) and "a2c" in f.lower():
                         available_models.append({"key": f, "name": f"A2C ({f})", "type": "A2C"})
                     else:
                         available_models.append({"key": f, "name": f"PPO ({f})", "type": "PPO"})
             elif f.endswith(".pth"):
                 key = f.replace(".pth", "")
                 # Determine model type from filename
-                if "a3c" in key.lower():
+                if "a2c" in key.lower():
+                    model_type = "A2C"
+                    name = f"A2C ({key})"
+                elif "a3c" in key.lower():
                     model_type = "A3C"
                     name = f"A3C ({key})"
                 else:
@@ -304,7 +295,7 @@ async def get_models():
 @app.post("/model/select")
 async def select_model(req: SelectModelRequest):
     """Canlı olarak otonom sürüş modelini değiştir."""
-    global MODEL_PATH, IS_PPO, IS_A2C, IS_SAC, env, agent, PPO_VIEW_RADIUS
+    global MODEL_PATH, IS_PPO, IS_A2C, env, agent, PPO_VIEW_RADIUS
     try:
         project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         
@@ -323,23 +314,17 @@ async def select_model(req: SelectModelRequest):
             raise HTTPException(status_code=404, detail=f"Model dosyası bulunamadı: {new_path}")
             
         MODEL_PATH = new_path
-        IS_SAC = "a2c_v2" in req.model_key.lower()
-        IS_A2C = (MODEL_PATH.endswith(".zip") or (os.path.isdir(MODEL_PATH) and os.path.exists(os.path.join(MODEL_PATH, "data")) and "a2c" in req.model_key.lower())) and not IS_SAC
-        IS_PPO = (os.path.exists(os.path.join(MODEL_PATH, "policy.pth")) or "ppo" in MODEL_PATH.lower()) and not (IS_A2C or IS_SAC)
-        IS_A3C = "a3c" in MODEL_PATH.lower() and not (IS_A2C or IS_SAC)
+        IS_A2C = MODEL_PATH.endswith(".zip") or (os.path.isdir(MODEL_PATH) and os.path.exists(os.path.join(MODEL_PATH, "data")) and "a2c" in req.model_key.lower())
+        IS_PPO = (os.path.exists(os.path.join(MODEL_PATH, "policy.pth")) or "ppo" in MODEL_PATH.lower()) and not IS_A2C
+        IS_A3C = ("a3c" in MODEL_PATH.lower() or "a2c" in MODEL_PATH.lower()) and not IS_A2C
         
-        if IS_SAC:
-            print(f"[DYNAMIC CHANGE] SAC modeline geçiliyor: {MODEL_PATH}")
-            env = GridEnvironment(size=DEFAULT_SIZE, random_maps=True, state_size=102)
-            from agent.sac_agent import SACAgent
-            agent = SACAgent(MODEL_PATH)
-        elif IS_A2C:
+        if IS_A2C:
             print(f"[DYNAMIC CHANGE] A2C modeline geçiliyor: {MODEL_PATH}")
             env = GridEnvironment(size=DEFAULT_SIZE, random_maps=True, state_size=77)
             from agent.a2c_agent import A2CAgent
             agent = A2CAgent(MODEL_PATH)
         elif IS_A3C:
-            print(f"[DYNAMIC CHANGE] A3C modeline geçiliyor: {MODEL_PATH}")
+            print(f"[DYNAMIC CHANGE] A2C/A3C modeline geçiliyor: {MODEL_PATH}")
             checkpoint = torch.load(MODEL_PATH, map_location="cpu", weights_only=False)
             config = checkpoint.get("config", {})
             state_size = config.get("state_size", 16)
@@ -353,7 +338,7 @@ async def select_model(req: SelectModelRequest):
             agent.network.load_state_dict(checkpoint["network_state"])
             agent.episode_count = checkpoint.get("episode_count", 0)
             agent.total_steps = checkpoint.get("total_steps", 0)
-            print(f"[DYNAMIC CHANGE] A3C model yüklendi! (state_size={state_size}, hidden={hidden_size}, Episodes: {agent.episode_count})")
+            print(f"[DYNAMIC CHANGE] A2C/A3C model yüklendi! (state_size={state_size}, hidden={hidden_size}, Episodes: {agent.episode_count})")
         elif IS_PPO:
             PPO_VIEW_RADIUS = get_model_view_radius(MODEL_PATH)
             print(f"[DYNAMIC CHANGE] PPO modeline geçiliyor: {MODEL_PATH} (View Radius: {PPO_VIEW_RADIUS})")
@@ -381,7 +366,7 @@ async def select_model(req: SelectModelRequest):
             agent.load(MODEL_PATH)
             
         print(f"[DYNAMIC CHANGE] Model değişimi başarılı! Aktif model: {req.model_key}")
-        model_type_str = "SAC" if IS_SAC else ("A2C" if IS_A2C else ("PPO" if IS_PPO else "DQN"))
+        model_type_str = "A2C" if IS_A2C else ("PPO" if IS_PPO else "DQN")
         return {
             "status": "success",
             "active_model": req.model_key,
@@ -707,8 +692,8 @@ def get_ppo_observation(env, view_radius=7):
     return np.array(obs, dtype=np.float32)
 
 
-def get_a3c_v3_state(env, view_radius: int = 7) -> np.ndarray:
-    """A3C v3 (state_size=94) için zengin state.
+def get_a2c_v3_state(env, view_radius: int = 7) -> np.ndarray:
+    """A2C v3 (state_size=94) için zengin state.
     8 yön ışın (32) + hedef (5) + visit_map 5x5 (25) + action_history 8x4 (32).
     env.visit_map_a3c ve env.action_history_a3c attribute'ları lazy initialize."""
     import math as _math
@@ -934,20 +919,7 @@ async def ws_simulate(ws: WebSocket):
                 prev_agent_pos = (env.agent_pos[0], env.agent_pos[1])
 
                 # Durum vektörü ve Inference (Model tipine göre)
-                if IS_SAC:
-                    state = get_ppo_observation(env, view_radius=5)
-                    q_values = agent.get_q_values(state).tolist()
-                    action = agent.select_action(state)
-                    if action == 4:  # STAY
-                        reward = -0.05
-                        env.steps_taken += 1
-                        done = env.steps_taken >= env.max_steps
-                        info = {"reached_goal": False, "steps": env.steps_taken}
-                    else:
-                        _, reward, done, info = env.step(action)
-                    epsilon = 0.0
-                    episode = 1
-                elif IS_A2C:
+                if IS_A2C:
                     state = get_a2c_observation(env)
                     q_values = agent.get_q_values(state).tolist()
                     action = int(np.argmax(q_values))
@@ -985,7 +957,7 @@ async def ws_simulate(ws: WebSocket):
                     DELTA_MAP = {0: (0, -1), 1: (0, 1), 2: (-1, 0), 3: (1, 0)}
 
                     if is_a3c_agent and agent.state_size == 94:
-                        state = get_a3c_v3_state(env, view_radius=7)
+                        state = get_a2c_v3_state(env, view_radius=7)
                         q_values = agent.get_q_values(state)
                         action = int(np.argmax(q_values))
 
