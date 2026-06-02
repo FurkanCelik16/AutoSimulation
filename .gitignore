@@ -53,3 +53,4 @@ test_*.py
 backend/venv_wsl/
 backend/sac_tensorboard/
 backend/models/*.zip
+!backend/models/sac_local.zip

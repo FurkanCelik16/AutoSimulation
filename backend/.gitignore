@@ -1,3 +1,4 @@
 venv_wsl/
 sac_tensorboard/
 models/*.zip
+!models/sac_local.zip
