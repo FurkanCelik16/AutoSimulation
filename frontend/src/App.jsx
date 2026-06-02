@@ -70,7 +70,7 @@ export default function App() {
     grid[1][DEFAULT_SIZE - 2] = 'goal';
     return grid;
   });
-  const [theme, setTheme] = useState('city'); // 'city' | 'warehouse' | 'mars' | 'hospital'
+  const [theme, setTheme] = useState('city'); // 'city' | 'warehouse' | 'mars'
 
   const themeLabels = {
     city: {
@@ -1138,7 +1138,7 @@ export default function App() {
             <span style={{ fontSize: '24px' }}>🏁</span>
             <div>
               <h2 style={{ margin: 0, fontSize: '18px', color: '#f1f5f9', fontWeight: 'bold' }}>
-                YAPAY ZEKA YARIŞ MODU (Yöntem 2)
+                AJAN YARIŞI
               </h2>
               <p style={{ margin: 0, fontSize: '12px', color: '#94a3b8' }}>
                 5 farklı otonom sürüş modelini aynı pistte yarıştırın! Ajanlar birbirini dinamik engel olarak görüp kaçınacaktır.
@@ -1564,7 +1564,7 @@ export default function App() {
 
         {/* 🗺️ Simülasyon Teması Seçici */}
         <div className="control-group">
-          <label htmlFor="theme-select" style={{ color: '#a855f7', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '4px' }}>
+          <label htmlFor="theme-select" style={{ color: '#06b6d4', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '4px' }}>
             🗺️ Tema:
           </label>
           <select
@@ -1576,13 +1576,13 @@ export default function App() {
               appearance: 'none',
               WebkitAppearance: 'none',
               MozAppearance: 'none',
-              background: 'linear-gradient(135deg, #2e1065 0%, #0f172a 100%)',
-              color: '#c084fc',
-              border: '1px solid #7c3aed',
-              boxShadow: '0 0 10px rgba(124, 58, 237, 0.2)',
+              background: 'linear-gradient(135deg, #083344 0%, #0f172a 100%)',
+              color: '#22d3ee',
+              border: '1px solid #0891b2',
+              boxShadow: '0 0 10px rgba(8, 145, 178, 0.2)',
               borderRadius: '6px',
               padding: '6px 28px 6px 12px',
-              backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23c084fc' d='M6 8L1 3h10z'/%3E%3C/svg%3E")`,
+              backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%2322d3ee' d='M6 8L1 3h10z'/%3E%3C/svg%3E")`,
               backgroundRepeat: 'no-repeat',
               backgroundPosition: 'right 10px center',
               cursor: 'pointer',
@@ -1597,7 +1597,6 @@ export default function App() {
             <option value="city" style={{ background: '#0f172a', color: '#fff' }}>🚗 Şehir</option>
             <option value="warehouse" style={{ background: '#0f172a', color: '#fff' }}>📦 Depo</option>
             <option value="mars" style={{ background: '#0f172a', color: '#fff' }}>🚀 Mars</option>
-            <option value="hospital" style={{ background: '#0f172a', color: '#fff' }}>🏥 Hastane</option>
           </select>
         </div>
         <div className="control-divider" />
