@@ -820,64 +820,7 @@ def get_a2c_observation(env):
     return observation
 
 
-def apply_safety_shields(env, action, q_values, pos_history, model_type, shield_enabled=False):
-    """
-    Kalkanlar (Safety Shields) mekanizması.
-    - Kalkan 1: Çarpışmadan Kaçınma (Collision Avoidance)
-    - Kalkan 2: Döngü Tespiti (Oscillation Escape)
-    """
-    if not shield_enabled:
-        return action
 
-    # Yön haritası: 0: LEFT, 1: RIGHT, 2: UP, 3: DOWN, 4: STAY
-    dr_map = {0: (0, -1), 1: (0, 1), 2: (-1, 0), 3: (1, 0), 4: (0, 0)}
-    r, c = env.agent_pos
-    num_actions = len(q_values) if q_values is not None and len(q_values) > 0 else (5 if model_type in ["PPO", "SAC"] else 4)
-
-    def is_safe_pos(row, col):
-        if not (0 <= row < env.size and 0 <= col < env.size):
-            return False
-        return not env._is_blocked(row, col)
-
-    # 1. Döngü Tespiti Kalkanı (Loop/Oscillation Detection)
-    oscillating = False
-    if len(pos_history) >= 8:
-        last_8 = list(pos_history)[-8:]
-        if len(set(last_8)) <= 2:
-            oscillating = True
-
-    if oscillating:
-        recent = set(list(pos_history)[-4:])
-        escape_actions = []
-        for a in range(num_actions):
-            if a == 4:
-                continue
-            dr, dc = dr_map[a]
-            nr, nc = r + dr, c + dc
-            if is_safe_pos(nr, nc) and (nr, nc) not in recent:
-                escape_actions.append(a)
-        
-        if escape_actions:
-            return int(max(escape_actions, key=lambda a: q_values[a] if a < len(q_values) else -999999.0))
-
-    # 2. Çarpışma Önleme Kalkanı (Collision Avoidance)
-    dr, dc = dr_map.get(action, (0, 0))
-    nr, nc = r + dr, c + dc
-
-    if not is_safe_pos(nr, nc):
-        safe_actions = []
-        for a in range(num_actions):
-            dr_alt, dc_alt = dr_map[a]
-            nr_alt, nc_alt = r + dr_alt, c + dc_alt
-            if is_safe_pos(nr_alt, nc_alt):
-                safe_actions.append(a)
-
-        if safe_actions:
-            return int(max(safe_actions, key=lambda a: q_values[a] if a < len(q_values) else -999999.0))
-        else:
-            return 4 if num_actions == 5 else action
-
-    return action
 
 
 @app.websocket("/ws/simulate")
@@ -991,13 +934,11 @@ async def ws_simulate(ws: WebSocket):
                 prev_agent_pos = (env.agent_pos[0], env.agent_pos[1])
 
                 # Durum vektörü ve Inference (Model tipine göre)
-                shield_enabled = tick.get("shield_enabled", False) or tick.get("shieldEnabled", False)
-                raw_action = None
+                action = None
                 if IS_A2C:
                     state = get_a2c_observation(env)
                     q_values = agent.get_q_values(state).tolist()
-                    raw_action = int(np.argmax(q_values))
-                    action = apply_safety_shields(env, raw_action, q_values, pos_history, "A2C", shield_enabled)
+                    action = int(np.argmax(q_values))
                     _, reward, done, info = env.step(action)
                     epsilon = 0.0
                     episode = 1
@@ -1006,17 +947,15 @@ async def ws_simulate(ws: WebSocket):
                     state_t = torch.FloatTensor(state).unsqueeze(0)
                     with torch.no_grad():
                         logits = agent.policy(state_t).squeeze(0).numpy()
-                    raw_action = int(np.argmax(logits))
+                    action = int(np.argmax(logits))
 
                     # Aksiyon geçmişini güncelle
                     action_oh = [0.0]*5
-                    action_oh[raw_action] = 1.0
+                    action_oh[action] = 1.0
                     env.action_history.append(action_oh)
 
                     q_values = [float(logits[0]), float(logits[1]),
                                 float(logits[2]), float(logits[3])]
-
-                    action = apply_safety_shields(env, raw_action, q_values, pos_history, "PPO", shield_enabled)
 
                     if action == 4:  # STAY
                         reward = -0.05
@@ -1036,9 +975,7 @@ async def ws_simulate(ws: WebSocket):
                     if is_a3c_agent and agent.state_size == 94:
                         state = get_a2c_v3_state(env, view_radius=7)
                         q_values = agent.get_q_values(state)
-                        raw_action = int(np.argmax(q_values))
-
-                        action = apply_safety_shields(env, raw_action, q_values, pos_history, "A3C", shield_enabled)
+                        action = int(np.argmax(q_values))
                         _, reward, done, info = env.step(action)
 
                         # visit_map ve action_history guncelle
@@ -1071,11 +1008,10 @@ async def ws_simulate(ws: WebSocket):
                             escape = [a for a in range(4)
                                       if tuple(np.array(env.agent_pos) + np.array(DELTA_MAP[a])) not in recent]
                             candidates = escape if escape else list(range(4))
-                            raw_action = int(max(candidates, key=lambda a: q_values[a]))
+                            action = int(max(candidates, key=lambda a: q_values[a]))
                         else:
-                            raw_action = int(np.argmax(q_values))
+                            action = int(np.argmax(q_values))
 
-                        action = apply_safety_shields(env, raw_action, q_values, pos_history, "DQN", shield_enabled)
                         _, reward, done, info = env.step(action)
 
                     epsilon = round(float(agent.epsilon), 4)
@@ -1148,8 +1084,7 @@ async def ws_simulate(ws: WebSocket):
                     "epsilon": epsilon,
                     "episode": episode,
                     "agent_pos": {"x": agent_x, "y": agent_y},
-                    "steps": int(info.get("steps", env.steps_taken)),
-                    "shield_triggered": bool(shield_enabled and raw_action is not None and action != raw_action)
+                    "steps": int(info.get("steps", env.steps_taken))
                 }
                 await ws.send_json(response)
 
@@ -1387,7 +1322,6 @@ async def ws_race(ws: WebSocket):
                     continue
 
                 # ─── Normal Adım (Simülasyon Tick) ───
-                shield_enabled = tick.get("shield_enabled", False) or tick.get("shieldEnabled", False)
                 if tick.get("grid") is not None:
                     grid_arr = np.array(tick["grid"], dtype=np.int8)
                     for env in racer_envs:
@@ -1475,14 +1409,12 @@ async def ws_race(ws: WebSocket):
                             state_t = torch.FloatTensor(state).unsqueeze(0)
                             with torch.no_grad():
                                 logits = m_agent.policy(state_t).squeeze(0).numpy()
-                            raw_action = int(np.argmax(logits))
+                            action = int(np.argmax(logits))
                             q_vals = [float(x) for x in logits[:4]]
 
                             action_oh = [0.0]*5
-                            action_oh[raw_action] = 1.0
+                            action_oh[action] = 1.0
                             env.action_history.append(action_oh)
-
-                            action = apply_safety_shields(env, raw_action, q_vals, pos_histories[i], "PPO", shield_enabled)
 
                             if action == 4:
                                 env.steps_taken += 1
@@ -1499,18 +1431,16 @@ async def ws_race(ws: WebSocket):
                             action_cont, _ = m_agent.predict(state, deterministic=True)
                             ay, ax = action_cont[0], action_cont[1]
                             if abs(ax) < 0.15 and abs(ay) < 0.15:
-                                raw_action = 4
+                                action = 4
                             elif abs(ay) > abs(ax):
-                                raw_action = 3 if ay > 0 else 2
+                                action = 3 if ay > 0 else 2
                             else:
-                                raw_action = 1 if ax > 0 else 0
+                                action = 1 if ax > 0 else 0
                             q_vals = [float(ay), float(ax), 0.0, 0.0]
 
                             action_oh = [0.0]*5
-                            action_oh[raw_action] = 1.0
+                            action_oh[action] = 1.0
                             env.action_history.append(action_oh)
-
-                            action = apply_safety_shields(env, raw_action, q_vals, pos_histories[i], "SAC", shield_enabled)
 
                             if action == 4:
                                 env.steps_taken += 1
@@ -1526,10 +1456,9 @@ async def ws_race(ws: WebSocket):
                             if model_obj["state_size"] == 94:
                                 state = get_a2c_v3_state(env, view_radius=7)
                                 q = m_agent.get_q_values(state)
-                                raw_action = int(np.argmax(q))
+                                action = int(np.argmax(q))
                                 q_vals = [float(x) for x in q]
 
-                                action = apply_safety_shields(env, raw_action, q_vals, pos_histories[i], "A3C", shield_enabled)
                                 _, reward, done, info = env.step(action)
                                 reached_goal = bool(info.get("reached_goal", False))
 
@@ -1542,27 +1471,24 @@ async def ws_race(ws: WebSocket):
                             else:
                                 state = env._get_state()[:model_obj["state_size"]]
                                 q = m_agent.get_q_values(state)
-                                raw_action = int(np.argmax(q))
+                                action = int(np.argmax(q))
                                 q_vals = [float(x) for x in q]
-                                action = apply_safety_shields(env, raw_action, q_vals, pos_histories[i], "A3C", shield_enabled)
                                 _, reward, done, info = env.step(action)
                                 reached_goal = bool(info.get("reached_goal", False))
 
                         elif m_type == "A2C":
                             state = get_a2c_observation(env)
                             q = m_agent.get_q_values(state)
-                            raw_action = int(np.argmax(q))
+                            action = int(np.argmax(q))
                             q_vals = [float(x) for x in q]
-                            action = apply_safety_shields(env, raw_action, q_vals, pos_histories[i], "A2C", shield_enabled)
                             _, reward, done, info = env.step(action)
                             reached_goal = bool(info.get("reached_goal", False))
 
                         else: # DQN
                             state = env._get_state()[:model_obj["state_size"]]
                             q = m_agent.get_q_values(state)
-                            raw_action = int(np.argmax(q))
+                            action = int(np.argmax(q))
                             q_vals = [float(x) for x in q]
-                            action = apply_safety_shields(env, raw_action, q_vals, pos_histories[i], "DQN", shield_enabled)
                             _, reward, done, info = env.step(action)
                             reached_goal = bool(info.get("reached_goal", False))
 
@@ -1578,8 +1504,7 @@ async def ws_race(ws: WebSocket):
                         "reward": reward,
                         "done": done,
                         "reached_goal": reached_goal,
-                        "pos": env.agent_pos,
-                        "shield_triggered": bool(shield_enabled and raw_action is not None and action != raw_action)
+                        "pos": env.agent_pos
                     })
 
                 # ─── Çoklu Araç Kaza / Çarpışma Denetimi (Çarpan Elensin Kuralı) ───

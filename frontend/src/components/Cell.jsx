@@ -18,7 +18,7 @@ const STATE_ICONS = {
 
 const MODE_CURSOR = { obstacle: 'crosshair', dynamic: 'crosshair', start: 'cell', goal: 'cell', waypoint: 'cell', 'traffic-light': 'cell' };
 
-function Cell({ row, col, state, onClick, coord, isOrigin, isXAxis, isYAxis, activeMode, racerModels = [], agentShieldTriggered, racerShields }) {
+function Cell({ row, col, state, onClick, coord, isOrigin, isXAxis, isYAxis, activeMode, racerModels = [] }) {
   const handleClick = () => {
     if (activeMode === 'start'          && (state === 'goal'  || state === 'dynamic' || state === 'agent' || state.startsWith('racer') || state === 'waypoint' || state.startsWith('traffic-light'))) return;
     if (activeMode === 'goal'           && (state === 'start' || state === 'dynamic' || state === 'agent' || state.startsWith('racer') || state === 'waypoint' || state.startsWith('traffic-light'))) return;
@@ -45,16 +45,12 @@ function Cell({ row, col, state, onClick, coord, isOrigin, isXAxis, isYAxis, act
   }
   const modelName = racerIndex >= 0 && racerModels?.[racerIndex] ? racerModels[racerIndex] : '';
 
-  const isAgentShielded = state === 'agent' && agentShieldTriggered;
-  const isRacerShielded = isRacer && racerShields?.[racerIndex];
-  const isShielded = isAgentShielded || isRacerShielded;
-
   return (
     <div className={`cell cell--${state.startsWith('racer') ? 'agent cell--' + state : state}${extraClass}`}
       onClick={handleClick} title={label} role="gridcell" aria-label={label}
       style={{ cursor, position: 'relative' }}>
       {STATE_ICONS[state] && <span className="cell__icon">{STATE_ICONS[state]}</span>}
-      {isShielded && <div className="cell__shield-halo" />}
+
       {isRacer && modelName && (
         <span className="cell__racer-label" style={{
           position: 'absolute',

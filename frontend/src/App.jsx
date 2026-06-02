@@ -178,7 +178,6 @@ export default function App() {
   const [collisionOccurred, setCollisionOccurred] = useState(false);
   const [notifications, setNotifications] = useState([]);
   const [raceRankings, setRaceRankings] = useState([]);
-  const [shieldEnabled, setShieldEnabled] = useState(true);
   const [selectedTrack, setSelectedTrack] = useState('monaco');
   const crashedRacersRef = useRef(new Set());
   const finishedRacersRef = useRef(new Set());
@@ -266,9 +265,6 @@ export default function App() {
   const activeModelRef = useRef('');
   activeModelRef.current = activeModel;
 
-  const shieldEnabledRef = useRef(true);
-  shieldEnabledRef.current = shieldEnabled;
-
   const totalRewardRef = useRef(0);
   const totalStepsRef = useRef(0);
 
@@ -337,18 +333,6 @@ export default function App() {
       setLastAction(res);
       console.log('[SIM] Aksiyon:', res.action_label, '| Q:', res.q_values);
 
-      if (res.shield_triggered) {
-        const msg = `🛡️ [Kalkan] Güvenlik kalkanı aktif! Çarpışma veya döngü engellendi.`;
-        const newId = Date.now() + '-shield-single';
-        setNotifications(prev => {
-          if (prev.some(n => n.message === msg)) return prev;
-          return [...prev, { id: newId, message: msg, type: 'shield' }];
-        });
-        setTimeout(() => {
-          setNotifications(prev => prev.filter(n => n.id !== newId));
-        }, 3500);
-      }
-
       if (res.reward !== undefined) {
         totalRewardRef.current += res.reward;
       }
@@ -394,7 +378,6 @@ export default function App() {
                 sendTick({
                   map_name: mapNameRef.current,
                   is_first_tick: true,
-                  shield_enabled: shieldEnabledRef.current,
                   agent_pos: indexToCoord(nextPos.row, nextPos.col, size),
                   goal_pos: indexToCoord(nextActiveTarget.row, nextActiveTarget.col, size),
                   dynamic_obstacles: calculatedNextDyn.map(o => indexToCoord(o.row, o.col, size)),
@@ -426,7 +409,6 @@ export default function App() {
               isWaitingForResponseRef.current = true;
               sendTick({
                 map_name: mapNameRef.current,
-                shield_enabled: shieldEnabledRef.current,
                 agent_pos: indexToCoord(nextPos.row, nextPos.col, size),
                 goal_pos: indexToCoord(activeTarget.row, activeTarget.col, size),
                 dynamic_obstacles: calculatedNextDyn.map(o => indexToCoord(o.row, o.col, size)),
@@ -467,23 +449,6 @@ export default function App() {
       }
 
       racers.forEach(r => {
-        if (r.shield_triggered) {
-          const colors = ["🔵 Racer 1", "🟠 Racer 2", "🟡 Racer 3", "🟢 Racer 4", "🟣 Racer 5"];
-          const racerColorName = colors[r.id % colors.length];
-          const modelLabel = r.model_key ? r.model_key.toUpperCase() : `RACER ${r.id + 1}`;
-          const msg = `🛡️ [Kalkan] ${racerColorName} (${modelLabel}) çarpışma/döngü engelledi!`;
-          const newId = Date.now() + '-shield-' + r.id;
-          
-          setNotifications(prev => {
-            if (prev.some(n => n.message === msg)) return prev;
-            return [...prev, { id: newId, message: msg, type: 'shield' }];
-          });
-          
-          setTimeout(() => {
-            setNotifications(prev => prev.filter(n => n.id !== newId));
-          }, 3500);
-        }
-
         if (r.agent_pos) {
           // Hedefe ulaşan ajanı haritadan sil (null), diğerleri normal konuma gider
           if (r.reached_goal) {
@@ -605,7 +570,6 @@ export default function App() {
             racer_models: activeModels,
             racer1_model: racer1ModelRef.current || 'ppo_hardcore_v2',
             racer2_model: racer2ModelRef.current || 'sac_driver_stage_2',
-            shield_enabled: shieldEnabledRef.current,
             dynamic_obstacles: calculatedNextDyn.map(o => indexToCoord(o.row, o.col, size)),
             grid: baseGrid.map((r, rIdx) => r.map((c, cIdx) => {
               if (c === 'obstacle') return 1;
@@ -751,7 +715,6 @@ export default function App() {
       sendTick({
         map_name: mapNameRef.current,
         is_first_tick: true,
-        shield_enabled: shieldEnabledRef.current,
         agent_pos: indexToCoord(startPos.row, startPos.col, size),
         goal_pos: indexToCoord(activeTarget.row, activeTarget.col, size),
         dynamic_obstacles: dynamicObstaclesRef.current.map(o => indexToCoord(o.row, o.col, size)),
@@ -791,7 +754,6 @@ export default function App() {
         racer_models: activeModels,
         racer1_model: racer1ModelRef.current || 'ppo_hardcore_v2',
         racer2_model: racer2ModelRef.current || 'sac_driver_stage_2',
-        shield_enabled: shieldEnabledRef.current,
         start_pos: indexToCoord(startPos.row, startPos.col, size),
         goal_pos: indexToCoord(goalPos.row, goalPos.col, size),
         dynamic_obstacles: dynamicObstaclesRef.current.map(o => indexToCoord(o.row, o.col, size)),
@@ -823,7 +785,6 @@ export default function App() {
       isWaitingForResponseRef.current = true;
       sendTick({
         map_name: mapNameRef.current,
-        shield_enabled: shieldEnabledRef.current,
         agent_pos: indexToCoord(agentPos.row, agentPos.col, size),
         goal_pos: indexToCoord(activeTarget.row, activeTarget.col, size),
         dynamic_obstacles: calculatedNextDyn.map(o => indexToCoord(o.row, o.col, size)),
@@ -1683,49 +1644,7 @@ export default function App() {
         </div>
         <div className="control-divider" />
 
-        {/* 🛡️ Sürüş Desteği (Kalkan Modu) */}
-        <div className="control-group" style={{ display: 'flex', alignItems: 'center', gap: '1px' }}>
-          <span className="control-label" style={{ color: '#10b981', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '4px', marginRight: '6px' }}>
-            🛡️ Kalkan:
-          </span>
-          <button
-            className={`btn ${shieldEnabled ? 'btn-success' : 'btn-secondary'}`}
-            onClick={() => setShieldEnabled(true)}
-            style={{
-              background: shieldEnabled ? 'linear-gradient(135deg, #059669 0%, #10b981 100%)' : '#21262d',
-              color: shieldEnabled ? '#fff' : '#8b949e',
-              border: shieldEnabled ? '1px solid #10b981' : '1px solid #30363d',
-              boxShadow: shieldEnabled ? '0 0 10px rgba(16, 185, 129, 0.3)' : 'none',
-              borderTopRightRadius: 0,
-              borderBottomRightRadius: 0,
-              padding: '6px 12px',
-              fontWeight: 'bold',
-              cursor: 'pointer',
-              transition: 'all 0.3s'
-            }}
-          >
-            Yardımlı
-          </button>
-          <button
-            className={`btn ${!shieldEnabled ? 'btn-danger' : 'btn-secondary'}`}
-            onClick={() => setShieldEnabled(false)}
-            style={{
-              background: !shieldEnabled ? 'linear-gradient(135deg, #dc2626 0%, #ef4444 100%)' : '#21262d',
-              color: !shieldEnabled ? '#fff' : '#8b949e',
-              border: !shieldEnabled ? '1px solid #ef4444' : '1px solid #30363d',
-              boxShadow: !shieldEnabled ? '0 0 10px rgba(239, 68, 68, 0.3)' : 'none',
-              borderTopLeftRadius: 0,
-              borderBottomLeftRadius: 0,
-              padding: '6px 12px',
-              fontWeight: 'bold',
-              cursor: 'pointer',
-              transition: 'all 0.3s'
-            }}
-          >
-            Yardımsız
-          </button>
-        </div>
-        <div className="control-divider" />
+
 
         {/* Testi Başlat / Testi Sonlandır */}
         <div className="control-group">
@@ -1775,24 +1694,6 @@ export default function App() {
               🧠 Ajan Karar Analitiği
             </h3>
             <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-              {lastAction.shield_triggered && (
-                <span style={{
-                  background: 'rgba(56, 189, 248, 0.15)',
-                  color: '#38bdf8',
-                  padding: '2px 8px',
-                  borderRadius: '4px',
-                  fontSize: '11px',
-                  border: '1px solid #0284c7',
-                  fontWeight: 'bold',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '4px',
-                  boxShadow: '0 0 8px rgba(56, 189, 248, 0.3)',
-                  animation: 'pulse 1.5s infinite'
-                }}>
-                  🛡️ KALKAN MÜDAHALESİ!
-                </span>
-              )}
               <span style={{
                 background: '#1e293b',
                 padding: '2px 6px',
@@ -1893,14 +1794,6 @@ export default function App() {
         <Grid grid={displayGrid} onCellClick={handleCellClick}
           size={size} center={center} indexToCoord={indexToCoord} activeMode={mode}
           racerModels={[racer1Model, racer2Model, racer3Model, racer4Model, racer5Model]}
-          agentShieldTriggered={lastAction?.shield_triggered}
-          racerShields={[
-            racer1LastAction?.shield_triggered,
-            racer2LastAction?.shield_triggered,
-            racer3LastAction?.shield_triggered,
-            racer4LastAction?.shield_triggered,
-            racer5LastAction?.shield_triggered
-          ]}
         />
       )}
 
@@ -1930,15 +1823,12 @@ export default function App() {
         }}>
           {notifications.map(n => {
             const isFinish = n.type === 'finish';
-            const isShield = n.type === 'shield';
             return (
               <div key={n.id} style={{
-                background: isFinish ? 'rgba(6, 25, 18, 0.97)' : isShield ? 'rgba(13, 25, 38, 0.97)' : 'rgba(13, 17, 23, 0.95)',
-                border: `1px solid ${isFinish ? '#10b981' : isShield ? '#38bdf8' : '#ef4444'}`,
+                background: isFinish ? 'rgba(6, 25, 18, 0.97)' : 'rgba(13, 17, 23, 0.95)',
+                border: `1px solid ${isFinish ? '#10b981' : '#ef4444'}`,
                 boxShadow: isFinish
                   ? '0 0 18px rgba(16, 185, 129, 0.5), 0 0 6px rgba(16, 185, 129, 0.2)'
-                  : isShield
-                  ? '0 0 18px rgba(56, 189, 248, 0.5), 0 0 6px rgba(56, 189, 248, 0.2)'
                   : '0 0 15px rgba(239, 68, 68, 0.4)',
                 color: '#ffffff',
                 padding: '12px 18px',
@@ -1953,7 +1843,7 @@ export default function App() {
                 gap: '12px',
                 pointerEvents: 'auto'
               }}>
-                <span style={{ color: isFinish ? '#6ee7b7' : isShield ? '#7dd3fc' : '#ffffff' }}>{n.message}</span>
+                <span style={{ color: isFinish ? '#6ee7b7' : '#ffffff' }}>{n.message}</span>
               </div>
             );
           })}

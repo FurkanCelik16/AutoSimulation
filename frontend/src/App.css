@@ -1112,31 +1112,3 @@ body {
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
-
-/* ── Shield Halo Animation ── */
-.cell__shield-halo {
-  position: absolute;
-  top: -4px;
-  left: -4px;
-  right: -4px;
-  bottom: -4px;
-  border: 2px solid #38bdf8;
-  border-radius: 50%;
-  box-shadow: 0 0 12px #38bdf8, inset 0 0 8px #38bdf8;
-  animation: shield-pulse 1s infinite alternate;
-  pointer-events: none;
-  z-index: 10;
-}
-
-@keyframes shield-pulse {
-  0% {
-    transform: scale(0.95);
-    box-shadow: 0 0 8px rgba(56, 189, 248, 0.6), inset 0 0 4px rgba(56, 189, 248, 0.4);
-    border-color: rgba(56, 189, 248, 0.6);
-  }
-  100% {
-    transform: scale(1.15);
-    box-shadow: 0 0 20px rgba(56, 189, 248, 1), inset 0 0 12px rgba(56, 189, 248, 0.8);
-    border-color: rgba(56, 189, 248, 1);
-  }
-}
