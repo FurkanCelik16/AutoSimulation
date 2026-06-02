@@ -20,9 +20,9 @@
   --color-text-dim:  #5c607a;
 
   /* Accent — teal instead of cold purple */
-  --color-accent:    #38bdf8;
-  --color-accent-dim: rgba(56,189,248,0.12);
-  --color-accent-glow: rgba(56,189,248,0.25);
+  --color-accent:    #60a5fa;
+  --color-accent-dim: rgba(96,165,250,0.12);
+  --color-accent-glow: rgba(96,165,250,0.25);
 
   /* Cell types */
   --cell-empty:       #1e2030;
