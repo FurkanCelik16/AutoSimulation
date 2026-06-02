@@ -265,10 +265,7 @@ async def get_models():
             elif f.endswith(".pth"):
                 key = f.replace(".pth", "")
                 # Determine model type from filename
-                if "a2c" in key.lower():
-                    model_type = "A2C"
-                    name = f"A2C ({key})"
-                elif "a3c" in key.lower():
+                if "a2c" in key.lower() or "a3c" in key.lower():
                     model_type = "A3C"
                     name = f"A3C ({key})"
                 else:
@@ -1209,10 +1206,11 @@ def load_model_by_key(model_key: str):
         model_type = "PPO"
     elif "sac" in model_key.lower() or (model_path.endswith(".zip") and "sac" in model_key.lower()):
         model_type = "SAC"
-    elif "a2c" in model_key.lower() or (model_path.endswith(".zip") and "a2c" in model_key.lower()):
-        model_type = "A2C"
-    elif "a3c" in model_key.lower():
-        model_type = "A3C"
+    elif "a2c" in model_key.lower() or "a3c" in model_key.lower():
+        if model_path.endswith(".pth") or "a3c" in model_key.lower():
+            model_type = "A3C"
+        else:
+            model_type = "A2C"
 
     print(f"[RACE] Yükleniyor: {model_key} (Tür: {model_type}) -> Path: {model_path}")
 
@@ -1318,21 +1316,25 @@ async def ws_race(ws: WebSocket):
                     racer_models = [load_model_by_key(k) for k in keys]
 
                     # ─── BFS ile Araçlara Ayrık Başlangıç Konumları Bul (Startup Grid Collision Engelleme) ───
-                    # Manhattan mesafesi en az 2 olacak şekilde dağıtarak ilk adımdaki çarpışmaları engelliyoruz
+                    # Manhattan mesafesi en az 3, yeterli olmazsa en az 2 olacak şekilde dağıtarak ilk adımdaki çarpışmaları engelliyoruz
                     start_cells = []
-                    visited = {start}
-                    queue = [start]
-                    while queue and len(start_cells) < len(keys):
-                        curr = queue.pop(0)
-                        r, c = curr
-                        if grid_arr[r, c] == 0:
-                            if all(abs(r - sc[0]) + abs(c - sc[1]) >= 2 for sc in start_cells):
-                                start_cells.append(curr)
-                        for dr, dc in [(-1, 0), (1, 0), (0, -1), (0, 1), (-1, -1), (-1, 1), (1, -1), (1, 1)]:
-                            nr, nc = r + dr, c + dc
-                            if 0 <= nr < size and 0 <= nc < size and (nr, nc) not in visited and grid_arr[nr, nc] == 0:
-                                visited.add((nr, nc))
-                                queue.append((nr, nc))
+                    for min_dist in [3, 2]:
+                        start_cells = []
+                        visited = {start}
+                        queue = [start]
+                        while queue and len(start_cells) < len(keys):
+                            curr = queue.pop(0)
+                            r, c = curr
+                            if grid_arr[r, c] == 0:
+                                if all(abs(r - sc[0]) + abs(c - sc[1]) >= min_dist for sc in start_cells):
+                                    start_cells.append(curr)
+                            for dr, dc in [(-1, 0), (1, 0), (0, -1), (0, 1), (-1, -1), (-1, 1), (1, -1), (1, 1)]:
+                                nr, nc = r + dr, c + dc
+                                if 0 <= nr < size and 0 <= nc < size and (nr, nc) not in visited and grid_arr[nr, nc] == 0:
+                                    visited.add((nr, nc))
+                                    queue.append((nr, nc))
+                        if len(start_cells) >= len(keys):
+                            break
                     
                     # Eğer yeterince boş hücre bulunamadıysa designated start hücresini fallback olarak kullan
                     while len(start_cells) < len(keys):
@@ -1385,6 +1387,7 @@ async def ws_race(ws: WebSocket):
                     continue
 
                 # ─── Normal Adım (Simülasyon Tick) ───
+                shield_enabled = tick.get("shield_enabled", False) or tick.get("shieldEnabled", False)
                 if tick.get("grid") is not None:
                     grid_arr = np.array(tick["grid"], dtype=np.int8)
                     for env in racer_envs:
@@ -1429,24 +1432,32 @@ async def ws_race(ws: WebSocket):
                     
                     prev_placed_dyn_obs = list(placed_dyn_obs)
 
-                # ─── YÖNTEM 2 KURALI: Her aracın diğerlerini ve hareketli engelleri dinamik engel görmesini sağla ───
-                for i, env in enumerate(racer_envs):
-                    dyn_obs = list(placed_dyn_obs)
-                    for j, other_env in enumerate(racer_envs):
-                        if i == j:
-                            continue
-                        # Hedefe ulaşmış (başarıyla bitirmiş) ajanları engel olarak gösterme
-                        # Böylece bitiş çizgisinde bekleyen bitirmiş ajanlar diğer ajanları engellemez
-                        if racer_dones[j] and prev_positions[j] == env.goal_pos:
-                            continue
-                        dr_other, dc_other = directions[j]
-                        prev_p_other = prev_positions[j]
-                        dyn_obs.append(DummyObs(prev_p_other[0], prev_p_other[1], dr_other, dc_other))
-                    env.dynamic_obstacles = dyn_obs
-
                 # ─── Tüm Ajanlar Karar ve Adım Adımları ───
                 step_results = []
                 for i, env in enumerate(racer_envs):
+                    # ─── YÖNTEM 2 KURALI: Her aracın diğerlerini ve hareketli engelleri dinamik engel görmesini sağla ───
+                    # Diğer ajanların en güncel/kararlaştırılmış konumlarını dinamik engel olarak ekliyoruz.
+                    dyn_obs = list(placed_dyn_obs)
+                    for j in range(len(racer_envs)):
+                        if i == j:
+                            continue
+                        
+                        # Hedefe ulaşmış (başarıyla bitirmiş) ajanları bitiş çizgisindeyken engel olarak gösterme
+                        curr_pos_j = racer_envs[j].agent_pos if j < i else prev_positions[j]
+                        if racer_dones[j] and curr_pos_j == env.goal_pos:
+                            continue
+                        
+                        # j < i ise yeni/güncel konumunu kullan, j > i ise eski konumunu kullan
+                        if j < i:
+                            pos_other = racer_envs[j].agent_pos
+                            dr_other = float(pos_other[0] - prev_positions[j][0])
+                            dc_other = float(pos_other[1] - prev_positions[j][1])
+                        else:
+                            pos_other = prev_positions[j]
+                            dr_other, dc_other = directions[j]
+                            
+                        dyn_obs.append(DummyObs(pos_other[0], pos_other[1], dr_other, dc_other))
+                    env.dynamic_obstacles = dyn_obs
                     model_obj = racer_models[i]
                     action = 4
                     q_vals = [0.0] * 4

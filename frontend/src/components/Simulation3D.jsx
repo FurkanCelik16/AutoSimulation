@@ -3626,8 +3626,8 @@ export default function Simulation3D({ size, baseGrid, agentPos, goalPos, waypoi
         {/* Agent (Self-driving supercar or industrial AMR or Martian Rover or Medical Capsule) */}
         {raceMode ? (
           activeRacers3D.map(r => {
-            const colors = ["#22d3ee", "#fb923c", "#ec4899", "#10b981", "#a855f7"];
-            const labels = ["🔵 1", "🟠 2", "💗 3", "🟢 4", "🟣 5"];
+            const colors = ["#22d3ee", "#fb923c", "#eab308", "#10b981", "#a855f7"];
+            const labels = ["🔵 1", "🟠 2", "🟡 3", "🟢 4", "🟣 5"];
             const color = colors[r.id % colors.length];
             const label = labels[r.id % labels.length];
             return (

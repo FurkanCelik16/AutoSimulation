@@ -64,7 +64,12 @@ const getProbabilities = (qValues) => {
 /* ─── App ─── */
 export default function App() {
   const [size, setSize] = useState(DEFAULT_SIZE);
-  const [baseGrid, setBaseGrid] = useState(() => createEmptyGrid(DEFAULT_SIZE));
+  const [baseGrid, setBaseGrid] = useState(() => {
+    const grid = createEmptyGrid(DEFAULT_SIZE);
+    grid[DEFAULT_SIZE - 2][1] = 'start';
+    grid[1][DEFAULT_SIZE - 2] = 'goal';
+    return grid;
+  });
   const [theme, setTheme] = useState('city'); // 'city' | 'warehouse' | 'mars' | 'hospital'
 
   const themeLabels = {
@@ -130,8 +135,8 @@ export default function App() {
   }, []);
   const [mode, setMode] = useState('obstacle');
   const [pattern, setPattern] = useState('linear-h');
-  const [startPos, setStartPos] = useState(null);
-  const [goalPos, setGoalPos] = useState(null);
+  const [startPos, setStartPos] = useState({ row: DEFAULT_SIZE - 2, col: 1 });
+  const [goalPos, setGoalPos] = useState({ row: 1, col: DEFAULT_SIZE - 2 });
   const [waypoints, setWaypoints] = useState([]);
   const [currentWaypointIndex, setCurrentWaypointIndex] = useState(0);
   const [trafficLights, setTrafficLights] = useState([]);
@@ -208,12 +213,13 @@ export default function App() {
 
         setAvailableModels(uniqueModels);
         setActiveModel(data.active_model);
-        if (uniqueModels.length >= 2) {
-          setRacer1Model(uniqueModels[0].key);
-          setRacer2Model(uniqueModels[1].key);
-        } else if (uniqueModels.length === 1) {
-          setRacer1Model(uniqueModels[0].key);
-          setRacer2Model(uniqueModels[0].key);
+        if (uniqueModels.length > 0) {
+          const N = uniqueModels.length;
+          setRacer1Model(uniqueModels[0 % N].key);
+          setRacer2Model(N >= 2 ? uniqueModels[1 % N].key : '');
+          setRacer3Model(N >= 3 ? uniqueModels[2 % N].key : '');
+          setRacer4Model(N >= 4 ? uniqueModels[3 % N].key : '');
+          setRacer5Model(N >= 5 ? uniqueModels[4 % N].key : '');
         }
       })
       .catch(err => console.error('[MODEL] Modeller yüklenemedi:', err));
@@ -462,7 +468,7 @@ export default function App() {
 
       racers.forEach(r => {
         if (r.shield_triggered) {
-          const colors = ["🔵 Racer 1", "🟠 Racer 2", "💗 Racer 3", "🟢 Racer 4", "🟣 Racer 5"];
+          const colors = ["🔵 Racer 1", "🟠 Racer 2", "🟡 Racer 3", "🟢 Racer 4", "🟣 Racer 5"];
           const racerColorName = colors[r.id % colors.length];
           const modelLabel = r.model_key ? r.model_key.toUpperCase() : `RACER ${r.id + 1}`;
           const msg = `🛡️ [Kalkan] ${racerColorName} (${modelLabel}) çarpışma/döngü engelledi!`;
@@ -505,7 +511,7 @@ export default function App() {
         // Hedefe ulaşan ajan için başarı bildirimi (sadece bir kez)
         if (r.reached_goal && !finishedRacersRef.current.has(r.id)) {
           finishedRacersRef.current.add(r.id);
-          const colors = ["🔵 Racer 1", "🟠 Racer 2", "💗 Racer 3", "🟢 Racer 4", "🟣 Racer 5"];
+          const colors = ["🔵 Racer 1", "🟠 Racer 2", "🟡 Racer 3", "🟢 Racer 4", "🟣 Racer 5"];
           const racerColorName = colors[r.id % colors.length];
           const modelLabel = r.model_key ? r.model_key.toUpperCase() : `RACER ${r.id + 1}`;
           const msg = `🎉 ${racerColorName} (${modelLabel}) yarışı tamamladı!`;
@@ -521,7 +527,7 @@ export default function App() {
         if (r.done && racerStatsRef.current[r.id] === undefined) {
           racerStatsRef.current[r.id] = {
             id: r.id,
-            name: ["🔵 Racer 1", "🟠 Racer 2", "💗 Racer 3", "🟢 Racer 4", "🟣 Racer 5"][r.id % 5],
+            name: ["🔵 Racer 1", "🟠 Racer 2", "🟡 Racer 3", "🟢 Racer 4", "🟣 Racer 5"][r.id % 5],
             model: r.model_key ? r.model_key.toUpperCase() : `RACER ${r.id + 1}`,
             status: r.reached_goal ? 'finished' : 'crashed',
             steps: totalStepsRef.current,
@@ -531,7 +537,7 @@ export default function App() {
           if (r.reward <= -40.0) {
             if (!crashedRacersRef.current.has(r.id)) {
               crashedRacersRef.current.add(r.id);
-              const colors = ["🔵 Racer 1", "🟠 Racer 2", "💗 Racer 3", "🟢 Racer 4", "🟣 Racer 5"];
+              const colors = ["🔵 Racer 1", "🟠 Racer 2", "🟡 Racer 3", "🟢 Racer 4", "🟣 Racer 5"];
               const racerColorName = colors[r.id % colors.length];
               const modelLabel = r.model_key ? r.model_key.toUpperCase() : `RACER ${r.id + 1}`;
               const msg = `💥 ${racerColorName} (${modelLabel}) çarpışarak elendi!`;
@@ -624,47 +630,89 @@ export default function App() {
   const { connect: connectRace, disconnect: disconnectRace, sendTick: sendRaceTick, connected: connectedRace } = raceSim;
 
   // Özel Yarış Pistlerini Oluşturma Şablonu
-  const generateRaceTrack = (trackName) => {
-    setSelectedTrack(trackName);
+  const generateRaceTrack = (trackName = 'random') => {
     setSize(15);
     const newGrid = createEmptyGrid(15);
-    const startCell = { row: 13, col: 2 };
-    const goalCell = { row: 13, col: 12 };
+    
+    // Yarış modunda da başlangıç ve hedef en uzak köşegen noktalarından 1 kare içeride
+    const startCell = { row: 13, col: 1 }; // Sol alt (1 kare içeride)
+    const goalCell = { row: 1, col: 13 };  // Sağ üst (1 kare içeride)
+    
+    const trackNames = ['track1', 'track2', 'track3', 'track4', 'track5', 'track6', 'track7', 'track8'];
+    let selected = trackName;
+    if (trackName === 'random' || !trackNames.includes(trackName)) {
+      selected = trackNames[Math.floor(Math.random() * trackNames.length)];
+    }
+    setSelectedTrack(selected);
 
-    if (trackName === 'monaco') {
-      // Monaco Grand Prix: Kıvrımlı yol, orta kısımda büyük engel adası ve şikanlar
-      for (let r = 3; r <= 11; r++) {
-        newGrid[r][7] = 'obstacle';
-      }
+    if (selected === 'track1') {
+      // S-Yol: Ortada basit bir yatay engel duvarı
       for (let c = 3; c <= 11; c++) {
-        newGrid[3][c] = 'obstacle';
-        newGrid[11][c] = 'obstacle';
+        newGrid[7][c] = 'obstacle';
       }
-      newGrid[7][3] = 'obstacle';
-      newGrid[7][11] = 'obstacle';
-    } else if (trackName === 'suzuka') {
-      // Suzuka S-Curves: Zikzaklı, sol-sağ kaçış alanları olan dar yol
-      for (let i = 2; i <= 12; i++) {
-        if (i !== 7) {
-          newGrid[i][4] = 'obstacle';
-          newGrid[i][10] = 'obstacle';
-        }
-      }
-      for (let c = 4; c <= 10; c++) {
-        if (c !== 7) {
-          newGrid[4][c] = 'obstacle';
-          newGrid[10][c] = 'obstacle';
-        }
-      }
-    } else if (trackName === 'redbull') {
-      // Red Bull Ring: Hızlı düzlükler ve ortada keskin zikzak bariyeri
-      for (let r = 5; r <= 9; r++) {
-        for (let c = 4; c <= 10; c++) {
+    } else if (selected === 'track2') {
+      // Merkezi Orta Ada: Küçük 3x3 ada (geçişi kolaylaştırır)
+      for (let r = 6; r <= 8; r++) {
+        for (let c = 6; c <= 8; c++) {
           newGrid[r][c] = 'obstacle';
         }
       }
-      newGrid[2][7] = 'obstacle';
-      newGrid[12][7] = 'obstacle';
+    } else if (selected === 'track3') {
+      // Kısa Dikey Şikanlar: Geniş zikzak
+      for (let r = 0; r <= 7; r++) {
+        newGrid[r][5] = 'obstacle';
+      }
+      for (let r = 7; r <= 14; r++) {
+        newGrid[r][9] = 'obstacle';
+      }
+    } else if (selected === 'track4') {
+      // Geniş Çapraz Tünel
+      for (let r = 0; r < 15; r++) {
+        for (let c = 0; c < 15; c++) {
+          if (Math.abs((14 - r) - c) > 5) {
+            newGrid[r][c] = 'obstacle';
+          }
+        }
+      }
+    } else if (selected === 'track5') {
+      // Küçük Köşe Blokları
+      for (let r = 0; r <= 4; r++) {
+        for (let c = 0; c <= 4; c++) {
+          if (r !== 1 || c !== 13) newGrid[r][c] = 'obstacle';
+        }
+      }
+      for (let r = 10; r <= 14; r++) {
+        for (let c = 10; c <= 14; c++) {
+          if (r !== 13 || c !== 1) newGrid[r][c] = 'obstacle';
+        }
+      }
+    } else if (selected === 'track6') {
+      // Kolay Şerit Bariyerleri
+      for (let r = 0; r < 15; r++) {
+        if (r !== 3 && r !== 4 && r !== 10 && r !== 11) {
+          newGrid[r][5] = 'obstacle';
+          newGrid[r][9] = 'obstacle';
+        }
+      }
+    } else if (selected === 'track7') {
+      // Basit 2x2 Şehir Blokları
+      const blocks = [3, 4, 10, 11];
+      blocks.forEach(r => {
+        blocks.forEach(c => {
+          newGrid[r][c] = 'obstacle';
+        });
+      });
+    } else if (selected === 'track8') {
+      // Kolay Geçitler
+      for (let r = 2; r <= 12; r++) {
+        newGrid[r][4] = 'obstacle';
+        newGrid[r][10] = 'obstacle';
+      }
+      // Geçit delikleri
+      newGrid[11][4] = 'empty';
+      newGrid[12][4] = 'empty';
+      newGrid[2][10] = 'empty';
+      newGrid[3][10] = 'empty';
     }
 
     newGrid[startCell.row][startCell.col] = 'start';
@@ -893,8 +941,14 @@ export default function App() {
   /* ─── Kontroller ─── */
   const handleSizeChange = (e) => {
     const s = Number(e.target.value);
-    setSize(s); setBaseGrid(createEmptyGrid(s));
-    setDynamicObstacles([]); setStartPos(null); setGoalPos(null);
+    setSize(s); 
+    const newGrid = createEmptyGrid(s);
+    newGrid[s - 2][1] = 'start';
+    newGrid[1][s - 2] = 'goal';
+    setBaseGrid(newGrid);
+    setDynamicObstacles([]); 
+    setStartPos({ row: s - 2, col: 1 }); 
+    setGoalPos({ row: 1, col: s - 2 });
     setWaypoints([]); setCurrentWaypointIndex(0); setTrafficLights([]);
     setAgentPos(null);
     setIsMoving(false); setIsTraining(false); setLastAction(null);
@@ -904,8 +958,13 @@ export default function App() {
   const clearStatic = () => setBaseGrid(p => p.map(r => r.map(c => c === 'obstacle' ? 'empty' : c)));
   const clearDynamic = () => { setDynamicObstacles([]); setIsMoving(false); };
   const reset = () => {
-    setBaseGrid(createEmptyGrid(size)); setDynamicObstacles([]);
-    setStartPos(null); setGoalPos(null);
+    const newGrid = createEmptyGrid(size);
+    newGrid[size - 2][1] = 'start';
+    newGrid[1][size - 2] = 'goal';
+    setBaseGrid(newGrid); 
+    setDynamicObstacles([]);
+    setStartPos({ row: size - 2, col: 1 }); 
+    setGoalPos({ row: 1, col: size - 2 });
     setWaypoints([]); setCurrentWaypointIndex(0); setTrafficLights([]);
     setAgentPos(null); setIsMoving(false);
     setIsTraining(false); setLastAction(null); setSaveStatus(null);
@@ -1132,8 +1191,8 @@ export default function App() {
               setRaceMode(prev => {
                 const next = !prev;
                 if (next) {
-                  // Yarış modu açıldığında varsayılan Monaco pistini yükle
-                  setTimeout(() => generateRaceTrack('monaco'), 100);
+                  // Yarış modu açıldığında varsayılan olarak rastgele bir pist oluştur
+                  setTimeout(() => generateRaceTrack('random'), 100);
                 } else {
                   reset();
                 }
@@ -1240,7 +1299,7 @@ export default function App() {
             {/* Racer 3 */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
               <label style={{ color: '#cbd5e1', fontWeight: 'bold', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                💗 Racer 3
+                🟡 Racer 3
               </label>
               <select
                 className="select-model btn btn-secondary"
@@ -1351,62 +1410,28 @@ export default function App() {
             {/* Race Tracks */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
               <label style={{ color: '#cbd5e1', fontWeight: 'bold', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                🏁 Yarış Pisti Seç:
+                🏁 Yarış Pisti:
               </label>
-              <div style={{ display: 'flex', gap: '6px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <span style={{ fontSize: '12.5px', color: '#cbd5e1', fontWeight: 'bold', minWidth: '100px' }}>
+                  Aktif: <span style={{ color: '#38bdf8' }}>{
+                    selectedTrack ? `Pist ${selectedTrack.replace('track', '')}` : 'Pist 1'
+                  }</span>
+                </span>
                 <button
-                  className="btn btn-secondary"
-                  onClick={() => generateRaceTrack('monaco')}
+                  className="btn btn-primary"
+                  onClick={() => generateRaceTrack('random')}
                   disabled={isTraining}
                   style={{
                     flex: 1,
                     fontSize: '12px',
-                    padding: '6px',
+                    padding: '6px 12px',
                     whiteSpace: 'nowrap',
-                    border: selectedTrack === 'monaco' ? '1px solid #38bdf8' : '1px solid #334155',
-                    background: selectedTrack === 'monaco' ? 'rgba(56, 189, 248, 0.1)' : '#1e293b',
-                    color: selectedTrack === 'monaco' ? '#38bdf8' : '#cbd5e1',
-                    fontWeight: selectedTrack === 'monaco' ? 'bold' : 'normal',
-                    transition: 'all 0.2s'
+                    fontWeight: 'bold',
+                    cursor: 'pointer'
                   }}
                 >
-                  Pist 1
-                </button>
-                <button
-                  className="btn btn-secondary"
-                  onClick={() => generateRaceTrack('suzuka')}
-                  disabled={isTraining}
-                  style={{
-                    flex: 1,
-                    fontSize: '12px',
-                    padding: '6px',
-                    whiteSpace: 'nowrap',
-                    border: selectedTrack === 'suzuka' ? '1px solid #38bdf8' : '1px solid #334155',
-                    background: selectedTrack === 'suzuka' ? 'rgba(56, 189, 248, 0.1)' : '#1e293b',
-                    color: selectedTrack === 'suzuka' ? '#38bdf8' : '#cbd5e1',
-                    fontWeight: selectedTrack === 'suzuka' ? 'bold' : 'normal',
-                    transition: 'all 0.2s'
-                  }}
-                >
-                  Pist 2
-                </button>
-                <button
-                  className="btn btn-secondary"
-                  onClick={() => generateRaceTrack('redbull')}
-                  disabled={isTraining}
-                  style={{
-                    flex: 1,
-                    fontSize: '12px',
-                    padding: '6px',
-                    whiteSpace: 'nowrap',
-                    border: selectedTrack === 'redbull' ? '1px solid #38bdf8' : '1px solid #334155',
-                    background: selectedTrack === 'redbull' ? 'rgba(56, 189, 248, 0.1)' : '#1e293b',
-                    color: selectedTrack === 'redbull' ? '#38bdf8' : '#cbd5e1',
-                    fontWeight: selectedTrack === 'redbull' ? 'bold' : 'normal',
-                    transition: 'all 0.2s'
-                  }}
-                >
-                  Pist 3
+                  🎲 Pist Oluştur
                 </button>
               </div>
             </div>
