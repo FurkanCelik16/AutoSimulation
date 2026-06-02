@@ -450,21 +450,13 @@ export default function App() {
 
       racers.forEach(r => {
         if (r.agent_pos) {
-          // Hedefe ulaşan ajanı haritadan sil (null), diğerleri normal konuma gider
-          if (r.reached_goal) {
-            if (r.id === 0) setRacer1Pos(null);
-            else if (r.id === 1) setRacer2Pos(null);
-            else if (r.id === 2) setRacer3Pos(null);
-            else if (r.id === 3) setRacer4Pos(null);
-            else if (r.id === 4) setRacer5Pos(null);
-          } else {
-            const nextPos = coordToIndex(r.agent_pos.x, r.agent_pos.y, size);
-            if (r.id === 0) setRacer1Pos(nextPos);
-            else if (r.id === 1) setRacer2Pos(nextPos);
-            else if (r.id === 2) setRacer3Pos(nextPos);
-            else if (r.id === 3) setRacer4Pos(nextPos);
-            else if (r.id === 4) setRacer5Pos(nextPos);
-          }
+          // Ajanların hedefe ulaştığında da son konumlarını (hedefi) koruruz, böylece 3D sahnesinde kaybolup tekrar ışınlanma sorunu yaşanmaz
+          const nextPos = coordToIndex(r.agent_pos.x, r.agent_pos.y, size);
+          if (r.id === 0) setRacer1Pos(nextPos);
+          else if (r.id === 1) setRacer2Pos(nextPos);
+          else if (r.id === 2) setRacer3Pos(nextPos);
+          else if (r.id === 3) setRacer4Pos(nextPos);
+          else if (r.id === 4) setRacer5Pos(nextPos);
         }
 
         if (r.id === 0) setRacer1LastAction(r);
