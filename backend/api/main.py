@@ -93,9 +93,9 @@ from collections import deque
 
 # ─── Model Yükleme ve Konfigürasyon ───
 MODEL_PATH = os.path.join(
-    os.path.dirname(os.path.dirname(__file__)), "models", "ppo_sweetspot_3"
+    os.path.dirname(os.path.dirname(__file__)), "models", "ppo_hardcore_v2"
 )
-DEFAULT_SIZE = 15  # Sweet Spot 3 — tüm grid boyutlarında şampiyon
+DEFAULT_SIZE = 15
 
 # PPO, DQN veya A2C (SB3) modelini otomatik olarak tespit et ve yükle
 IS_PPO = os.path.exists(os.path.join(MODEL_PATH, "policy.pth")) or "ppo" in MODEL_PATH.lower()
@@ -104,7 +104,9 @@ IS_A2C = MODEL_PATH.endswith(".zip") or "a2c" in MODEL_PATH.lower()
 # Dynamic view radius mapping for different PPO models
 def get_model_view_radius(model_path: str) -> int:
     lower_path = model_path.lower()
-    if any(x in lower_path for x in ["radius3", "radius_3", "_r3", "sweetspot3"]):
+    if any(x in lower_path for x in ["kalkansiz", "hardcore_v2"]):
+        return 5
+    elif any(x in lower_path for x in ["radius3", "radius_3", "_r3", "sweetspot3"]):
         return 3
     elif any(x in lower_path for x in ["radius4", "radius_4", "_r4", "sweetspot"]):
         return 4
@@ -118,8 +120,7 @@ PPO_VIEW_RADIUS = get_model_view_radius(MODEL_PATH)
 
 # --- VERSION STAMP ---
 print("=" * 60)
-print("[INIT] A3C v8: SAF RL (state_size=94) + PPO-benzeri shield AKTIF")
-print("[INIT] Eger bu satiri gormediysen backend eski kod calistiriyor!")
+print("[INIT] Tüm modeller kalkansız (saf sinir ağı) modunda çalışıyor.")
 print("=" * 60)
 
 if IS_A2C:
@@ -917,125 +918,26 @@ async def ws_simulate(ws: WebSocket):
                 # Durum vektörü ve Inference (Model tipine göre)
                 if IS_A2C:
                     state = get_a2c_observation(env)
-                    
-                    # 1. A2C eylem olasılıklarını al (AutoSimulation formatında: [LEFT, RIGHT, UP, DOWN])
                     q_values = agent.get_q_values(state).tolist()
-                    preferred_action = int(np.argmax(q_values))
-                    
-                    # 2. Güvenli Eylemler Haritası (Collision Avoidance Safety Shield)
-                    DELTA_MAP = {0: (0, -1), 1: (0, 1), 2: (-1, 0), 3: (1, 0)}
-                    safe_actions = []
-                    for a in range(4):
-                        dr, dc = DELTA_MAP[a]
-                        c_pos = (env.agent_pos[0] + dr, env.agent_pos[1] + dc)
-                        if (0 <= c_pos[0] < env.size and 0 <= c_pos[1] < env.size):
-                            # Statik engeller ve kırmızı ışık kontrolü
-                            if env.grid[c_pos[0], c_pos[1]] == 1:
-                                continue
-                            
-                            # Dinamik engeller (hareketli araçlar) kontrolü
-                            is_dyn_blocked = False
-                            if hasattr(env, "dynamic_obstacles"):
-                                for idx, obs in enumerate(env.dynamic_obstacles):
-                                    if (obs.row, obs.col) == c_pos:
-                                        is_dyn_blocked = True
-                                        break
-                                    if hasattr(env, "prev_dynamic_obstacles") and idx < len(env.prev_dynamic_obstacles):
-                                        prev_obs = env.prev_dynamic_obstacles[idx]
-                                        if (prev_obs.row, prev_obs.col) == c_pos and (obs.row, obs.col) == env.agent_pos:
-                                            is_dyn_blocked = True
-                                            break
-                            if not is_dyn_blocked:
-                                safe_actions.append(a)
-                                
-                    # 3. Ziyaret Cezalı Karar Mekanizması (Visitation Penalty Shield)
-                    # A2C hafızasız olduğu için döngüye girmesini önlemek üzere ziyaret sayısına göre ceza uygularız
-                    if safe_actions:
-                        def get_action_score(a):
-                            dr, dc = DELTA_MAP[a]
-                            next_pos = (env.agent_pos[0] + dr, env.agent_pos[1] + dc)
-                            visits = visit_counts.get(next_pos, 0)
-                            
-                            # Hedefe olan Manhattan mesafesi farkı (hedefe yaklaştıkça mesafe azalır, fark pozitif olur)
-                            curr_dist = abs(env.agent_pos[0] - env.goal_pos[0]) + abs(env.agent_pos[1] - env.goal_pos[1])
-                            next_dist = abs(next_pos[0] - env.goal_pos[0]) + abs(next_pos[1] - env.goal_pos[1])
-                            dist_diff = curr_dist - next_dist
-                            
-                            # Skor formülü: model olasılığı + mesafe kazancı - ziyaret cezası
-                            score = q_values[a] + 0.15 * dist_diff - 0.45 * visits
-                            return score
-                        
-                        action = int(max(safe_actions, key=get_action_score))
-                    else:
-                        action = preferred_action
-                            
-                    # Simülasyon adımı
+                    action = int(np.argmax(q_values))
                     _, reward, done, info = env.step(action)
                     epsilon = 0.0
                     episode = 1
                 elif IS_PPO:
                     state = get_ppo_observation(env, view_radius=PPO_VIEW_RADIUS)
-                    # PPO logits'i alıp frontend Q-değerleri olarak gönderelim
                     state_t = torch.FloatTensor(state).unsqueeze(0)
                     with torch.no_grad():
                         logits = agent.policy(state_t).squeeze(0).numpy()
-                    
-                    ppo_action = int(np.argmax(logits))
-                    action = ppo_action
+                    action = int(np.argmax(logits))
 
-                    # --- GÜVENLİK KALKANI (COLLISION AVOIDANCE SHIELD) ---
-                    # Eğer ajan statik bir duvara, kırmızı ışığa veya dinamik engele çarpmak üzereyse
-                    # beyninin karar verdiği en yüksek logitli GÜVENLİ alternatife yönlendirilir.
-                    # Actions: 0=LEFT, 1=RIGHT, 2=UP, 3=DOWN, 4=STAY
-                    DELTA_MAP = {0: (0,-1), 1: (0,1), 2: (-1,0), 3: (1,0)}
-                    
-                    # Güvenli eylemleri kontrol edelim (Statik engeller, Kırmızı Işıklar ve Hareketli Engeller)
-                    safe_actions = []
-                    for a in range(4):
-                        dr, dc = DELTA_MAP[a]
-                        c_pos = (env.agent_pos[0] + dr, env.agent_pos[1] + dc)
-                        if (0 <= c_pos[0] < env.size and 0 <= c_pos[1] < env.size):
-                            # 1. Statik engeller ve kırmızı ışıklar
-                            if env.grid[c_pos[0], c_pos[1]] == 1:
-                                continue
-                            
-                            # 2. Hareketli engeller (Pasif ve Swap çarpışmaları)
-                            is_dyn_blocked = False
-                            if hasattr(env, "dynamic_obstacles"):
-                                for idx, obs in enumerate(env.dynamic_obstacles):
-                                    # Pasif çarpışma (engelin yeni/güncel konumu)
-                                    if (obs.row, obs.col) == c_pos:
-                                        is_dyn_blocked = True
-                                        break
-                                    # Swap çarpışması (ajan engelin eski konumuna, engel ajanın eski konumuna)
-                                    if hasattr(env, "prev_dynamic_obstacles") and idx < len(env.prev_dynamic_obstacles):
-                                        prev_obs = env.prev_dynamic_obstacles[idx]
-                                        if (prev_obs.row, prev_obs.col) == c_pos and (obs.row, obs.col) == env.agent_pos:
-                                            is_dyn_blocked = True
-                                            break
-                            
-                            if not is_dyn_blocked:
-                                safe_actions.append(a)
-                    safe_actions.append(4)  # STAY her zaman güvenlidir
-                    
-                    # Eğer seçilen eylem güvenli değilse, en yüksek logitli güvenli eylemi seçelim
-                    if action not in safe_actions:
-                        action = int(max(safe_actions, key=lambda a: logits[a]))
-                    
-                    # PPO aksiyon geçmişini modelin beklediği formatta güncelleyelim
+                    # Aksiyon geçmişini güncelle
                     action_oh = [0.0]*5
                     action_oh[action] = 1.0
                     env.action_history.append(action_oh)
-                    
-                    # Q-values representation for frontend (0=LEFT, 1=RIGHT, 2=UP, 3=DOWN)
-                    q_values = [
-                        float(logits[0]),  # LEFT
-                        float(logits[1]),  # RIGHT
-                        float(logits[2]),  # UP
-                        float(logits[3]),  # DOWN
-                    ]
-                    
-                    # Simülasyon adımı
+
+                    q_values = [float(logits[0]), float(logits[1]),
+                                float(logits[2]), float(logits[3])]
+
                     if action == 4:  # STAY
                         reward = -0.05
                         env.steps_taken += 1
@@ -1043,8 +945,8 @@ async def ws_simulate(ws: WebSocket):
                         info = {"reached_goal": False, "steps": env.steps_taken}
                     else:
                         _, reward, done, info = env.step(action)
-                    
-                    epsilon = 0.0  # PPO deterministik çalışıyor
+
+                    epsilon = 0.0
                     episode = 1
                 else:
                     # Model'in A3C mi DQN mi oldugunu tipinden anla
@@ -1052,39 +954,9 @@ async def ws_simulate(ws: WebSocket):
                     DELTA_MAP = {0: (0, -1), 1: (0, 1), 2: (-1, 0), 3: (1, 0)}
 
                     if is_a3c_agent and agent.state_size == 94:
-                        # A3C v3: zengin state + PPO-benzeri safety shield
                         state = get_a3c_v3_state(env, view_radius=7)
                         q_values = agent.get_q_values(state)
-
-                        safe_actions = []
-                        for a in range(4):
-                            dr, dc = DELTA_MAP[a]
-                            c_pos = (env.agent_pos[0] + dr, env.agent_pos[1] + dc)
-                            if not (0 <= c_pos[0] < env.size and 0 <= c_pos[1] < env.size):
-                                continue
-                            if env.grid[c_pos[0], c_pos[1]] == 1:
-                                continue
-                            is_dyn_blocked = False
-                            if hasattr(env, "dynamic_obstacles"):
-                                for idx, obs in enumerate(env.dynamic_obstacles):
-                                    if (obs.row, obs.col) == c_pos:
-                                        is_dyn_blocked = True; break
-                                    if (hasattr(env, "prev_dynamic_obstacles")
-                                            and idx < len(env.prev_dynamic_obstacles)):
-                                        prev_obs = env.prev_dynamic_obstacles[idx]
-                                        if ((prev_obs.row, prev_obs.col) == c_pos
-                                                and (obs.row, obs.col) == env.agent_pos):
-                                            is_dyn_blocked = True; break
-                            if not is_dyn_blocked:
-                                safe_actions.append(a)
-
-                        best_action = int(np.argmax(q_values))
-                        if best_action in safe_actions:
-                            action = best_action
-                        elif safe_actions:
-                            action = int(max(safe_actions, key=lambda a: q_values[a]))
-                        else:
-                            action = best_action
+                        action = int(np.argmax(q_values))
 
                         _, reward, done, info = env.step(action)
 
