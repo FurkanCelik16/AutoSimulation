@@ -68,8 +68,8 @@
   --shadow-md:  0 4px 20px rgba(0,0,0,0.4);
   --shadow-lg:  0 8px 40px rgba(0,0,0,0.55);
 
-  --transition-fast: 0.13s ease;
-  --transition-med:  0.22s ease;
+  --transition-fast: 0.10s ease;
+  --transition-med:  0.18s ease;
 }
 
 /* ── Reset ── */
