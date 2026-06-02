@@ -106,12 +106,12 @@ def get_model_view_radius(model_path: str) -> int:
     lower_path = model_path.lower()
     if any(x in lower_path for x in ["kalkansiz", "hardcore_v2"]):
         return 5
-    elif any(x in lower_path for x in ["radius3", "radius_3", "_r3", "sweetspot3"]):
+    elif any(x in lower_path for x in ["radius3", "radius_3", "_r3"]):
         return 3
+    elif any(x in lower_path for x in ["radius5", "radius_5", "_r5", "sweetspot5", "_s5", "ssr_v5_s5"]):
+        return 5
     elif any(x in lower_path for x in ["radius4", "radius_4", "_r4", "sweetspot"]):
         return 4
-    elif any(x in lower_path for x in ["radius5", "radius_5", "_r5", "sweetspot5"]):
-        return 5
     elif any(x in lower_path for x in ["radius6", "radius_6", "_r6", "sweetspot6"]):
         return 6
     return 7
@@ -277,12 +277,27 @@ async def get_models():
                 available_models.append({"key": key, "name": name, "type": model_type})
             elif f.endswith(".zip"):
                 key = f.replace(".zip", "")
-                available_models.append({"key": key, "name": f"A2C ({key})", "type": "A2C"})
+                if "sac" in key.lower():
+                    model_type = "SAC"
+                    name = f"SAC ({key})"
+                else:
+                    model_type = "A2C"
+                    name = f"A2C ({key})"
+                available_models.append({"key": key, "name": name, "type": model_type})
                 
     # Eger hic PPO model tespit edilemediyse varsayilan olarak listele
     if not any(m["type"] == "PPO" for m in available_models):
         available_models.insert(0, {"key": "ppo_stage_4_hardcore", "name": "PPO (ppo_stage_4_hardcore)", "type": "PPO"})
         
+    # React'in "Encountered two children with the same key" uyarısını engellemek için modelleri key bazında tekilleştir
+    seen_keys = set()
+    unique_models = []
+    for m in available_models:
+        if m["key"] not in seen_keys:
+            seen_keys.add(m["key"])
+            unique_models.append(m)
+    available_models = unique_models
+
     # Aktif model ismini bul
     active_key = os.path.basename(MODEL_PATH).replace(".pth", "").replace(".zip", "")
     
@@ -808,6 +823,66 @@ def get_a2c_observation(env):
     return observation
 
 
+def apply_safety_shields(env, action, q_values, pos_history, model_type, shield_enabled=False):
+    """
+    Kalkanlar (Safety Shields) mekanizması.
+    - Kalkan 1: Çarpışmadan Kaçınma (Collision Avoidance)
+    - Kalkan 2: Döngü Tespiti (Oscillation Escape)
+    """
+    if not shield_enabled:
+        return action
+
+    # Yön haritası: 0: LEFT, 1: RIGHT, 2: UP, 3: DOWN, 4: STAY
+    dr_map = {0: (0, -1), 1: (0, 1), 2: (-1, 0), 3: (1, 0), 4: (0, 0)}
+    r, c = env.agent_pos
+    num_actions = len(q_values) if q_values is not None and len(q_values) > 0 else (5 if model_type in ["PPO", "SAC"] else 4)
+
+    def is_safe_pos(row, col):
+        if not (0 <= row < env.size and 0 <= col < env.size):
+            return False
+        return not env._is_blocked(row, col)
+
+    # 1. Döngü Tespiti Kalkanı (Loop/Oscillation Detection)
+    oscillating = False
+    if len(pos_history) >= 8:
+        last_8 = list(pos_history)[-8:]
+        if len(set(last_8)) <= 2:
+            oscillating = True
+
+    if oscillating:
+        recent = set(list(pos_history)[-4:])
+        escape_actions = []
+        for a in range(num_actions):
+            if a == 4:
+                continue
+            dr, dc = dr_map[a]
+            nr, nc = r + dr, c + dc
+            if is_safe_pos(nr, nc) and (nr, nc) not in recent:
+                escape_actions.append(a)
+        
+        if escape_actions:
+            return int(max(escape_actions, key=lambda a: q_values[a] if a < len(q_values) else -999999.0))
+
+    # 2. Çarpışma Önleme Kalkanı (Collision Avoidance)
+    dr, dc = dr_map.get(action, (0, 0))
+    nr, nc = r + dr, c + dc
+
+    if not is_safe_pos(nr, nc):
+        safe_actions = []
+        for a in range(num_actions):
+            dr_alt, dc_alt = dr_map[a]
+            nr_alt, nc_alt = r + dr_alt, c + dc_alt
+            if is_safe_pos(nr_alt, nc_alt):
+                safe_actions.append(a)
+
+        if safe_actions:
+            return int(max(safe_actions, key=lambda a: q_values[a] if a < len(q_values) else -999999.0))
+        else:
+            return 4 if num_actions == 5 else action
+
+    return action
+
+
 @app.websocket("/ws/simulate")
 async def ws_simulate(ws: WebSocket):
     """
@@ -919,10 +994,13 @@ async def ws_simulate(ws: WebSocket):
                 prev_agent_pos = (env.agent_pos[0], env.agent_pos[1])
 
                 # Durum vektörü ve Inference (Model tipine göre)
+                shield_enabled = tick.get("shield_enabled", False) or tick.get("shieldEnabled", False)
+                raw_action = None
                 if IS_A2C:
                     state = get_a2c_observation(env)
                     q_values = agent.get_q_values(state).tolist()
-                    action = int(np.argmax(q_values))
+                    raw_action = int(np.argmax(q_values))
+                    action = apply_safety_shields(env, raw_action, q_values, pos_history, "A2C", shield_enabled)
                     _, reward, done, info = env.step(action)
                     epsilon = 0.0
                     episode = 1
@@ -931,15 +1009,17 @@ async def ws_simulate(ws: WebSocket):
                     state_t = torch.FloatTensor(state).unsqueeze(0)
                     with torch.no_grad():
                         logits = agent.policy(state_t).squeeze(0).numpy()
-                    action = int(np.argmax(logits))
+                    raw_action = int(np.argmax(logits))
 
                     # Aksiyon geçmişini güncelle
                     action_oh = [0.0]*5
-                    action_oh[action] = 1.0
+                    action_oh[raw_action] = 1.0
                     env.action_history.append(action_oh)
 
                     q_values = [float(logits[0]), float(logits[1]),
                                 float(logits[2]), float(logits[3])]
+
+                    action = apply_safety_shields(env, raw_action, q_values, pos_history, "PPO", shield_enabled)
 
                     if action == 4:  # STAY
                         reward = -0.05
@@ -959,8 +1039,9 @@ async def ws_simulate(ws: WebSocket):
                     if is_a3c_agent and agent.state_size == 94:
                         state = get_a2c_v3_state(env, view_radius=7)
                         q_values = agent.get_q_values(state)
-                        action = int(np.argmax(q_values))
+                        raw_action = int(np.argmax(q_values))
 
+                        action = apply_safety_shields(env, raw_action, q_values, pos_history, "A3C", shield_enabled)
                         _, reward, done, info = env.step(action)
 
                         # visit_map ve action_history guncelle
@@ -993,10 +1074,11 @@ async def ws_simulate(ws: WebSocket):
                             escape = [a for a in range(4)
                                       if tuple(np.array(env.agent_pos) + np.array(DELTA_MAP[a])) not in recent]
                             candidates = escape if escape else list(range(4))
-                            action = int(max(candidates, key=lambda a: q_values[a]))
+                            raw_action = int(max(candidates, key=lambda a: q_values[a]))
                         else:
-                            action = int(np.argmax(q_values))
+                            raw_action = int(np.argmax(q_values))
 
+                        action = apply_safety_shields(env, raw_action, q_values, pos_history, "DQN", shield_enabled)
                         _, reward, done, info = env.step(action)
 
                     epsilon = round(float(agent.epsilon), 4)
@@ -1070,6 +1152,7 @@ async def ws_simulate(ws: WebSocket):
                     "episode": episode,
                     "agent_pos": {"x": agent_x, "y": agent_y},
                     "steps": int(info.get("steps", env.steps_taken)),
+                    "shield_triggered": bool(shield_enabled and raw_action is not None and action != raw_action)
                 }
                 await ws.send_json(response)
 
@@ -1092,6 +1175,538 @@ async def ws_simulate(ws: WebSocket):
 
     except WebSocketDisconnect:
         print(f"[WS] İstemci ayrıldı: {ws.client}")
+
+
+# ─── Canlı Model Yükleme Yardımcısı (Yarış Modu için) ─────────────────────────
+
+def load_model_by_key(model_key: str):
+    """Herhangi bir modeli key adına göre çalışma zamanında yükler ve yapılandırır."""
+    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    folder_path = os.path.join(project_root, "models", model_key)
+    zip_path = os.path.join(project_root, "models", f"{model_key}.zip")
+    pth_path = os.path.join(project_root, "models", f"{model_key}.pth")
+
+    # Zip tabanlı modeller (SAC ve A2C) için öncelikle .zip uzantılı dosya yolunu tercih et (IsADirectoryError önlemek için)
+    is_zip_model = "sac" in model_key.lower() or "a2c" in model_key.lower()
+    if is_zip_model and os.path.exists(zip_path):
+        model_path = zip_path
+    elif os.path.isdir(folder_path):
+        model_path = folder_path
+    elif os.path.exists(zip_path):
+        model_path = zip_path
+    else:
+        model_path = pth_path
+
+    if not os.path.exists(model_path):
+        if os.path.exists(model_path + ".zip"):
+            model_path += ".zip"
+        else:
+            raise FileNotFoundError(f"Model dosyası bulunamadı: {model_path}")
+
+    # Model türünü isminden ve uzantısından anla
+    model_type = "DQN"
+    if "ppo" in model_key.lower():
+        model_type = "PPO"
+    elif "sac" in model_key.lower() or (model_path.endswith(".zip") and "sac" in model_key.lower()):
+        model_type = "SAC"
+    elif "a2c" in model_key.lower() or (model_path.endswith(".zip") and "a2c" in model_key.lower()):
+        model_type = "A2C"
+    elif "a3c" in model_key.lower():
+        model_type = "A3C"
+
+    print(f"[RACE] Yükleniyor: {model_key} (Tür: {model_type}) -> Path: {model_path}")
+
+    if model_type == "PPO":
+        from agent.ppo_agent import PPOAgent
+        agent_obj = PPOAgent(state_size=102, action_size=5)
+        agent_obj.load(model_path)
+        view_radius = get_model_view_radius(model_path)
+        return {"agent": agent_obj, "type": "PPO", "state_size": 102, "view_radius": view_radius}
+    elif model_type == "SAC":
+        from stable_baselines3 import SAC
+        agent_obj = SAC.load(model_path)
+        return {"agent": agent_obj, "type": "SAC", "state_size": 102, "view_radius": 4}
+    elif model_type == "A2C":
+        from agent.a2c_agent import A2CAgent
+        agent_obj = A2CAgent(model_path)
+        return {"agent": agent_obj, "type": "A2C", "state_size": 77}
+    elif model_type == "A3C":
+        from agent.a3c_agent import A3CAgent
+        checkpoint = torch.load(model_path, map_location="cpu", weights_only=False)
+        config = checkpoint.get("config", {})
+        state_size = config.get("state_size", 94)
+        action_size = config.get("action_size", 4)
+        hidden_size = config.get("hidden_size", 256)
+        agent_obj = A3CAgent(state_size=state_size, action_size=action_size, hidden_size=hidden_size)
+        agent_obj.network.load_state_dict(checkpoint["network_state"])
+        agent_obj.episode_count = checkpoint.get("episode_count", 0)
+        return {"agent": agent_obj, "type": "A3C", "state_size": state_size}
+    else: # DQN
+        from agent.dql_agent import DQLAgent
+        checkpoint = torch.load(model_path, map_location="cpu", weights_only=False)
+        config = checkpoint.get("config", {})
+        state_size = config.get("state_size", 16)
+        action_size = config.get("action_size", 4)
+        hidden_size = config.get("hidden_size", 256)
+        agent_obj = DQLAgent(state_size=state_size, action_size=action_size, hidden_size=hidden_size)
+        agent_obj.load(model_path)
+        return {"agent": agent_obj, "type": "DQN", "state_size": state_size}
+
+
+# ─── WebSocket Yarış Modu Endpointi (Yöntem 2) ────────────────────────────────
+
+@app.websocket("/ws/race")
+async def ws_race(ws: WebSocket):
+    """
+    Çoklu aracın aynı anda yarıştığı, birbirlerini dinamik engel olarak gördüğü
+    ve çarpışmadan kaçındığı yarış modu simülasyonu (Yöntem 2).
+    """
+    await ws.accept()
+    print(f"[RACE WS] İstemci bağlandı: {ws.client}")
+
+    # Yarış durum değişkenleri
+    racer_envs = []
+    racer_models = []
+    pos_histories = []
+    keys = []
+    racer_dones = []
+    prev_placed_dyn_obs = []
+
+    try:
+        while True:
+            try:
+                raw = await ws.receive_text()
+            except Exception:
+                break
+
+            try:
+                tick = json.loads(raw)
+            except json.JSONDecodeError:
+                await ws.send_json({"error": "Geçersiz JSON"})
+                continue
+
+            try:
+                # ─── Sıfırlama ve Başlatma (First Tick) ───
+                if tick.get("is_first_tick") or not racer_envs:
+                    grid_arr = np.array(tick["grid"], dtype=np.int8)
+                    size = grid_arr.shape[0]
+                    half = size // 2
+
+                    def api_to_idx(x: int, y: int) -> tuple:
+                        return (half - y, x + half)
+
+                    sp = tick.get("start_pos", {"x": -half, "y": half})
+                    gp = tick.get("goal_pos", {"x": half, "y": -half})
+                    start = api_to_idx(sp["x"], sp["y"])
+                    goal = api_to_idx(gp["x"], gp["y"])
+
+                    # racer_models listesini al, yoksa racer1_model ve racer2_model fallbacks
+                    keys = tick.get("racer_models")
+                    if keys is None:
+                        keys = [tick.get("racer1_model", "ppo_hardcore_v2"), tick.get("racer2_model", "sac_driver_stage_2")]
+                    
+                    # Boş veya geçersiz anahtarları ele
+                    keys = [k for k in keys if k]
+                    if not keys:
+                        keys = ["ppo_hardcore_v2"]
+
+                    print(f"[RACE INIT] Racer Models: {keys} | Harita: {size}x{size}")
+
+                    prev_placed_dyn_obs = []
+
+                    # Modelleri yükle
+                    racer_models = [load_model_by_key(k) for k in keys]
+
+                    # ─── BFS ile Araçlara Ayrık Başlangıç Konumları Bul (Startup Grid Collision Engelleme) ───
+                    # Manhattan mesafesi en az 2 olacak şekilde dağıtarak ilk adımdaki çarpışmaları engelliyoruz
+                    start_cells = []
+                    visited = {start}
+                    queue = [start]
+                    while queue and len(start_cells) < len(keys):
+                        curr = queue.pop(0)
+                        r, c = curr
+                        if grid_arr[r, c] == 0:
+                            if all(abs(r - sc[0]) + abs(c - sc[1]) >= 2 for sc in start_cells):
+                                start_cells.append(curr)
+                        for dr, dc in [(-1, 0), (1, 0), (0, -1), (0, 1), (-1, -1), (-1, 1), (1, -1), (1, 1)]:
+                            nr, nc = r + dr, c + dc
+                            if 0 <= nr < size and 0 <= nc < size and (nr, nc) not in visited and grid_arr[nr, nc] == 0:
+                                visited.add((nr, nc))
+                                queue.append((nr, nc))
+                    
+                    # Eğer yeterince boş hücre bulunamadıysa designated start hücresini fallback olarak kullan
+                    while len(start_cells) < len(keys):
+                        start_cells.append(start)
+
+                    # Ajanlara özel izole ortamlar oluştur
+                    racer_envs = []
+                    pos_histories = []
+                    racer_dones = [False] * len(keys)
+                    for i, model_obj in enumerate(racer_models):
+                        env = GridEnvironment(size=size, random_maps=False, state_size=model_obj["state_size"])
+                        env._generate_from_data(grid_arr, start_cells[i], goal)
+                        env.reset()
+
+                        # Ziyaret ve aksiyon geçmişlerini sıfırla
+                        if hasattr(env, "visit_map"): delattr(env, "visit_map")
+                        if hasattr(env, "action_history"): delattr(env, "action_history")
+                        if hasattr(env, "visit_map_a3c"): delattr(env, "visit_map_a3c")
+                        if hasattr(env, "action_history_a3c"): delattr(env, "action_history_a3c")
+
+                        racer_envs.append(env)
+                        pos_histories.append([env.agent_pos])
+
+                    # Başlangıç paketini geri gönder
+                    response = {
+                        "racers": [],
+                        "collision": False
+                    }
+                    for i, env in enumerate(racer_envs):
+                        r, c = env.agent_pos
+                        response["racers"].append({
+                            "id": i,
+                            "model_key": keys[i],
+                            "action": 4,
+                            "action_label": "STAY",
+                            "q_values": [0.0, 0.0, 0.0, 0.0],
+                            "reward": 0.0,
+                            "done": False,
+                            "reached_goal": False,
+                            "agent_pos": {"x": int(c - half), "y": int(half - r)}
+                        })
+                    
+                    # Geriye dönük uyumluluk (Racer 1 & Racer 2 fallbacks)
+                    if len(racer_envs) >= 1:
+                        response["racer1"] = response["racers"][0]
+                    if len(racer_envs) >= 2:
+                        response["racer2"] = response["racers"][1]
+
+                    await ws.send_json(response)
+                    continue
+
+                # ─── Normal Adım (Simülasyon Tick) ───
+                if tick.get("grid") is not None:
+                    grid_arr = np.array(tick["grid"], dtype=np.int8)
+                    for env in racer_envs:
+                        env.grid = grid_arr.copy()
+
+                # Önceki konumları yedekle
+                prev_positions = [env.agent_pos for env in racer_envs]
+
+                # Yönleri hesapla (birbirinin raycast algılaması için)
+                directions = []
+                for i, env in enumerate(racer_envs):
+                    history = pos_histories[i]
+                    prev_p = prev_positions[i]
+                    dr = float(prev_p[0] - (history[-2][0] if len(history) >= 2 else prev_p[0]))
+                    dc = float(prev_p[1] - (history[-2][1] if len(history) >= 2 else prev_p[1]))
+                    directions.append((dr, dc))
+
+                class DummyObs:
+                    def __init__(self, row, col, dr, dc):
+                        self.row = row
+                        self.col = col
+                        self.dr = dr
+                        self.dc = dc
+                    @property
+                    def pos(self):
+                        return (self.row, self.col)
+
+                placed_dyn_obs = []
+                if tick.get("dynamic_obstacles") is not None:
+                    half = size // 2
+                    def api_to_idx(x: int, y: int) -> tuple:
+                        return (half - y, x + half)
+
+                    for idx, d_cart in enumerate(tick["dynamic_obstacles"]):
+                        d_idx = api_to_idx(d_cart["x"], d_cart["y"])
+                        dr, dc = 0.0, 0.0
+                        if idx < len(prev_placed_dyn_obs):
+                            prev_obs = prev_placed_dyn_obs[idx]
+                            dr = float(d_idx[0] - prev_obs.row)
+                            dc = float(d_idx[1] - prev_obs.col)
+                        placed_dyn_obs.append(DummyObs(d_idx[0], d_idx[1], dr, dc))
+                    
+                    prev_placed_dyn_obs = list(placed_dyn_obs)
+
+                # ─── YÖNTEM 2 KURALI: Her aracın diğerlerini ve hareketli engelleri dinamik engel görmesini sağla ───
+                for i, env in enumerate(racer_envs):
+                    dyn_obs = list(placed_dyn_obs)
+                    for j, other_env in enumerate(racer_envs):
+                        if i == j:
+                            continue
+                        # Hedefe ulaşmış (başarıyla bitirmiş) ajanları engel olarak gösterme
+                        # Böylece bitiş çizgisinde bekleyen bitirmiş ajanlar diğer ajanları engellemez
+                        if racer_dones[j] and prev_positions[j] == env.goal_pos:
+                            continue
+                        dr_other, dc_other = directions[j]
+                        prev_p_other = prev_positions[j]
+                        dyn_obs.append(DummyObs(prev_p_other[0], prev_p_other[1], dr_other, dc_other))
+                    env.dynamic_obstacles = dyn_obs
+
+                # ─── Tüm Ajanlar Karar ve Adım Adımları ───
+                step_results = []
+                for i, env in enumerate(racer_envs):
+                    model_obj = racer_models[i]
+                    action = 4
+                    q_vals = [0.0] * 4
+                    done = racer_dones[i]
+                    reached_goal = False
+                    reward = 0.0
+                    raw_action = None
+
+                    if not done and not env.steps_taken >= env.max_steps:
+                        m_type = model_obj["type"]
+                        m_agent = model_obj["agent"]
+
+                        if m_type == "PPO":
+                            state = get_ppo_observation(env, view_radius=model_obj["view_radius"])
+                            state_t = torch.FloatTensor(state).unsqueeze(0)
+                            with torch.no_grad():
+                                logits = m_agent.policy(state_t).squeeze(0).numpy()
+                            raw_action = int(np.argmax(logits))
+                            q_vals = [float(x) for x in logits[:4]]
+
+                            action_oh = [0.0]*5
+                            action_oh[raw_action] = 1.0
+                            env.action_history.append(action_oh)
+
+                            action = apply_safety_shields(env, raw_action, q_vals, pos_histories[i], "PPO", shield_enabled)
+
+                            if action == 4:
+                                env.steps_taken += 1
+                                done = env.steps_taken >= env.max_steps
+                                reward = -0.05
+                                info = {"reached_goal": False}
+                            else:
+                                _, reward, done, info = env.step(action)
+                            reached_goal = bool(info.get("reached_goal", False))
+                            env.visit_map[env.agent_pos[0], env.agent_pos[1]] += 1.0
+
+                        elif m_type == "SAC":
+                            state = get_ppo_observation(env, view_radius=4)
+                            action_cont, _ = m_agent.predict(state, deterministic=True)
+                            ay, ax = action_cont[0], action_cont[1]
+                            if abs(ax) < 0.15 and abs(ay) < 0.15:
+                                raw_action = 4
+                            elif abs(ay) > abs(ax):
+                                raw_action = 3 if ay > 0 else 2
+                            else:
+                                raw_action = 1 if ax > 0 else 0
+                            q_vals = [float(ay), float(ax), 0.0, 0.0]
+
+                            action_oh = [0.0]*5
+                            action_oh[raw_action] = 1.0
+                            env.action_history.append(action_oh)
+
+                            action = apply_safety_shields(env, raw_action, q_vals, pos_histories[i], "SAC", shield_enabled)
+
+                            if action == 4:
+                                env.steps_taken += 1
+                                done = env.steps_taken >= env.max_steps
+                                reward = -0.05
+                                info = {"reached_goal": False}
+                            else:
+                                _, reward, done, info = env.step(action)
+                            reached_goal = bool(info.get("reached_goal", False))
+                            env.visit_map[env.agent_pos[0], env.agent_pos[1]] += 1.0
+
+                        elif m_type == "A3C":
+                            if model_obj["state_size"] == 94:
+                                state = get_a2c_v3_state(env, view_radius=7)
+                                q = m_agent.get_q_values(state)
+                                raw_action = int(np.argmax(q))
+                                q_vals = [float(x) for x in q]
+
+                                action = apply_safety_shields(env, raw_action, q_vals, pos_histories[i], "A3C", shield_enabled)
+                                _, reward, done, info = env.step(action)
+                                reached_goal = bool(info.get("reached_goal", False))
+
+                                if hasattr(env, "visit_map_a3c"):
+                                    env.visit_map_a3c[env.agent_pos[0], env.agent_pos[1]] += 1
+                                if hasattr(env, "action_history_a3c"):
+                                    oh = [0.0]*4
+                                    if 0 <= action < 4: oh[action] = 1.0
+                                    env.action_history_a3c.append(oh)
+                            else:
+                                state = env._get_state()[:model_obj["state_size"]]
+                                q = m_agent.get_q_values(state)
+                                raw_action = int(np.argmax(q))
+                                q_vals = [float(x) for x in q]
+                                action = apply_safety_shields(env, raw_action, q_vals, pos_histories[i], "A3C", shield_enabled)
+                                _, reward, done, info = env.step(action)
+                                reached_goal = bool(info.get("reached_goal", False))
+
+                        elif m_type == "A2C":
+                            state = get_a2c_observation(env)
+                            q = m_agent.get_q_values(state)
+                            raw_action = int(np.argmax(q))
+                            q_vals = [float(x) for x in q]
+                            action = apply_safety_shields(env, raw_action, q_vals, pos_histories[i], "A2C", shield_enabled)
+                            _, reward, done, info = env.step(action)
+                            reached_goal = bool(info.get("reached_goal", False))
+
+                        else: # DQN
+                            state = env._get_state()[:model_obj["state_size"]]
+                            q = m_agent.get_q_values(state)
+                            raw_action = int(np.argmax(q))
+                            q_vals = [float(x) for x in q]
+                            action = apply_safety_shields(env, raw_action, q_vals, pos_histories[i], "DQN", shield_enabled)
+                            _, reward, done, info = env.step(action)
+                            reached_goal = bool(info.get("reached_goal", False))
+
+                        if done or reached_goal:
+                            racer_dones[i] = True
+                    else:
+                        # Zaten pasif/elenmiş/bitirmiş
+                        done = True
+
+                    step_results.append({
+                        "action": action,
+                        "q_values": q_vals,
+                        "reward": reward,
+                        "done": done,
+                        "reached_goal": reached_goal,
+                        "pos": env.agent_pos,
+                        "shield_triggered": bool(shield_enabled and raw_action is not None and action != raw_action)
+                    })
+
+                # ─── Çoklu Araç Kaza / Çarpışma Denetimi (Çarpan Elensin Kuralı) ───
+                collision = False
+                hitter_indices = set()
+
+                for a_idx in range(len(racer_envs)):
+                    for b_idx in range(a_idx + 1, len(racer_envs)):
+                        # Zaten kaza yapmış araçların tekrar çarpışmasını kontrol etmeye gerek yok
+                        if racer_dones[a_idx] and racer_dones[b_idx]:
+                            continue
+
+                        pos_a = step_results[a_idx]["pos"]
+                        pos_b = step_results[b_idx]["pos"]
+                        
+                        # Goal hücresinde çarpışma kontrolünü devre dışı bırakıyoruz (Finish çizgisi güvenli bölgedir)
+                        goal_pos = racer_envs[a_idx].goal_pos
+                        if pos_a == goal_pos or pos_b == goal_pos:
+                            continue
+
+                        prev_pos_a = prev_positions[a_idx]
+                        prev_pos_b = prev_positions[b_idx]
+
+                        # 1. Aynı hücreye girme (Grid Collision)
+                        if pos_a == pos_b:
+                            collision = True
+                            
+                            # Hangi araçlar hareket etti (çarpan kim?)
+                            moved_a = prev_pos_a != pos_a
+                            moved_b = prev_pos_b != pos_b
+
+                            if moved_a and not moved_b:
+                                hitter_indices.add(a_idx)
+                            elif moved_b and not moved_a:
+                                hitter_indices.add(b_idx)
+                            else:
+                                # İkisi birden hareket ettiyse (veya ikisi birden hareketsiz çakıştıysa) ikisi birden elenir
+                                hitter_indices.add(a_idx)
+                                hitter_indices.add(b_idx)
+
+                        # 2. Yer değiştirme (Swap Collision)
+                        elif prev_pos_a == pos_b and prev_pos_b == pos_a:
+                            collision = True
+                            hitter_indices.add(a_idx)
+                            hitter_indices.add(b_idx)
+
+                if collision:
+                    print(f"[RACE COLLISION] Ajanlar çarpıştı! Elenen Çarpan Ajanlar: {hitter_indices}")
+                    for idx in hitter_indices:
+                        racer_dones[idx] = True
+                        step_results[idx]["done"] = True
+                        step_results[idx]["reward"] = -50.0
+
+                # 3. Hareketli Engellere Çarpma Kontrolü (Swap ve Üzerine Gelme / Ezilme)
+                for idx in range(len(racer_envs)):
+                    if racer_dones[idx] or step_results[idx]["done"]:
+                        continue
+
+                    pos_racer = step_results[idx]["pos"]
+                    
+                    # Goal hücresinde hareketli engelle çarpışma kontrolünü devre dışı bırakıyoruz
+                    goal_pos = racer_envs[idx].goal_pos
+                    if pos_racer == goal_pos:
+                        continue
+
+                    prev_pos_racer = prev_positions[idx]
+
+                    swap_hit = False
+                    passive_hit = False
+
+                    for o_idx, obs in enumerate(placed_dyn_obs):
+                        # Swap Collision check
+                        if o_idx < len(prev_placed_dyn_obs):
+                            p_obs = prev_placed_dyn_obs[o_idx]
+                            prev_obs_pos = (p_obs.row, p_obs.col)
+                            new_obs_pos = (obs.row, obs.col)
+                            if prev_pos_racer == new_obs_pos and pos_racer == prev_obs_pos:
+                                swap_hit = True
+                                break
+                        
+                        # Passive/Active overlap check
+                        if pos_racer == (obs.row, obs.col):
+                            passive_hit = True
+                            break
+
+                    if swap_hit or passive_hit:
+                        print(f"[RACE DYN OBS COLLISION] Ajan {idx} hareketli engele çarptı! Swap: {swap_hit}, Passive: {passive_hit}")
+                        collision = True
+                        racer_dones[idx] = True
+                        step_results[idx]["done"] = True
+                        step_results[idx]["reward"] = -50.0
+
+                # Konum geçmişini güncelle
+                for i, env in enumerate(racer_envs):
+                    pos_histories[i].append(env.agent_pos)
+
+                # Frontend koordinatlarına dönüştür
+                half = racer_envs[0].size // 2
+                action_labels = {0: "LEFT", 1: "RIGHT", 2: "UP", 3: "DOWN", 4: "STAY"}
+
+                response = {
+                    "racers": [],
+                    "collision": collision
+                }
+
+                for i, env in enumerate(racer_envs):
+                    r_res = step_results[i]
+                    r, c = r_res["pos"]
+                    response["racers"].append({
+                        "id": i,
+                        "model_key": keys[i],
+                        "action": int(r_res["action"]),
+                        "action_label": action_labels.get(r_res["action"], "STAY"),
+                        "q_values": r_res["q_values"],
+                        "reward": round(float(r_res["reward"]), 2),
+                        "done": bool(r_res["done"]),
+                        "reached_goal": bool(r_res["reached_goal"]),
+                        "agent_pos": {"x": int(c - half), "y": int(half - r)}
+                    })
+
+                # Compatibility fallbacks
+                if len(racer_envs) >= 1:
+                    response["racer1"] = response["racers"][0]
+                if len(racer_envs) >= 2:
+                    response["racer2"] = response["racers"][1]
+
+                await ws.send_json(response)
+            except Exception as proc_err:
+                print(f"[RACE WS] İşlem hatası: {proc_err}")
+                import traceback
+                traceback.print_exc()
+                try:
+                    await ws.send_json({"error": f"İşlem hatası: {str(proc_err)}"})
+                except:
+                    break
+
+    except WebSocketDisconnect:
+        print(f"[RACE WS] İstemci ayrıldı: {ws.client}")
 
 
 # ─── Başlatma ─────────────────────────────────────────────────────────────────

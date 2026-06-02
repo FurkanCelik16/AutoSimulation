@@ -387,6 +387,8 @@ class GridEnvironment:
 
     def _is_blocked(self, row: int, col: int) -> bool:
         """Verilen hücre statik veya dinamik engelle bloke mu?"""
+        if (row, col) == self.goal_pos:
+            return False
         if self.grid[row, col] == 1:
             return True
         return self._is_dynamic_obstacle(row, col)

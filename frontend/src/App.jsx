@@ -8,6 +8,7 @@ import Simulation3D from './components/Simulation3D';
 import useInterval from './hooks/useInterval';
 import { saveMap, buildGameMapDTO } from './services/api';
 import { useSimulation } from './hooks/useSimulation';
+import { useRaceSimulation } from './hooks/useRaceSimulation';
 
 /* ─── Sabitler ─── */
 const GRID_SIZES = [11, 15, 21, 31];
@@ -152,13 +153,68 @@ export default function App() {
   const [availableModels, setAvailableModels] = useState([]);
   const [activeModel, setActiveModel] = useState('');
 
+  // 🏁 Yarış Modu Durumları
+  const [raceMode, setRaceMode] = useState(false);
+  const [racer1Model, setRacer1Model] = useState('');
+  const [racer2Model, setRacer2Model] = useState('');
+  const [racer3Model, setRacer3Model] = useState('');
+  const [racer4Model, setRacer4Model] = useState('');
+  const [racer5Model, setRacer5Model] = useState('');
+  const [racer1Pos, setRacer1Pos] = useState(null);
+  const [racer2Pos, setRacer2Pos] = useState(null);
+  const [racer3Pos, setRacer3Pos] = useState(null);
+  const [racer4Pos, setRacer4Pos] = useState(null);
+  const [racer5Pos, setRacer5Pos] = useState(null);
+  const [racer1LastAction, setRacer1LastAction] = useState(null);
+  const [racer2LastAction, setRacer2LastAction] = useState(null);
+  const [racer3LastAction, setRacer3LastAction] = useState(null);
+  const [racer4LastAction, setRacer4LastAction] = useState(null);
+  const [racer5LastAction, setRacer5LastAction] = useState(null);
+  const [collisionOccurred, setCollisionOccurred] = useState(false);
+  const [notifications, setNotifications] = useState([]);
+  const [raceRankings, setRaceRankings] = useState([]);
+  const [shieldEnabled, setShieldEnabled] = useState(true);
+  const [selectedTrack, setSelectedTrack] = useState('monaco');
+  const crashedRacersRef = useRef(new Set());
+  const finishedRacersRef = useRef(new Set());
+  const racerStatsRef = useRef({});
+
+  const racer1ModelRef = useRef('');
+  racer1ModelRef.current = racer1Model;
+  const racer2ModelRef = useRef('');
+  racer2ModelRef.current = racer2Model;
+  const racer3ModelRef = useRef('');
+  racer3ModelRef.current = racer3Model;
+  const racer4ModelRef = useRef('');
+  racer4ModelRef.current = racer4Model;
+  const racer5ModelRef = useRef('');
+  racer5ModelRef.current = racer5Model;
+
+
   // Mevcut modelleri backend'den çek
   useEffect(() => {
     fetch(`${MODEL_API}/models`)
       .then(res => res.json())
       .then(data => {
-        setAvailableModels(data.models);
+        // Frontend tarafında her ihtimale karşı key bazında tekilleştirme yapalım (React key çakışmasını engellemek için)
+        const uniqueModels = [];
+        const seenKeys = new Set();
+        (data.models || []).forEach(m => {
+          if (!seenKeys.has(m.key)) {
+            seenKeys.add(m.key);
+            uniqueModels.push(m);
+          }
+        });
+
+        setAvailableModels(uniqueModels);
         setActiveModel(data.active_model);
+        if (uniqueModels.length >= 2) {
+          setRacer1Model(uniqueModels[0].key);
+          setRacer2Model(uniqueModels[1].key);
+        } else if (uniqueModels.length === 1) {
+          setRacer1Model(uniqueModels[0].key);
+          setRacer2Model(uniqueModels[0].key);
+        }
       })
       .catch(err => console.error('[MODEL] Modeller yüklenemedi:', err));
   }, []);
@@ -203,6 +259,9 @@ export default function App() {
 
   const activeModelRef = useRef('');
   activeModelRef.current = activeModel;
+
+  const shieldEnabledRef = useRef(true);
+  shieldEnabledRef.current = shieldEnabled;
 
   const totalRewardRef = useRef(0);
   const totalStepsRef = useRef(0);
@@ -266,12 +325,23 @@ export default function App() {
     }));
   }, [size, baseGrid, startPos, goalPos]);
 
-  /* ── WebSocket simülasyon hook ── */
   const { connect, disconnect, sendTick, connected } = useSimulation({
     onResponse: useCallback((res) => {
       isWaitingForResponseRef.current = false;
       setLastAction(res);
       console.log('[SIM] Aksiyon:', res.action_label, '| Q:', res.q_values);
+
+      if (res.shield_triggered) {
+        const msg = `🛡️ [Kalkan] Güvenlik kalkanı aktif! Çarpışma veya döngü engellendi.`;
+        const newId = Date.now() + '-shield-single';
+        setNotifications(prev => {
+          if (prev.some(n => n.message === msg)) return prev;
+          return [...prev, { id: newId, message: msg, type: 'shield' }];
+        });
+        setTimeout(() => {
+          setNotifications(prev => prev.filter(n => n.id !== newId));
+        }, 3500);
+      }
 
       if (res.reward !== undefined) {
         totalRewardRef.current += res.reward;
@@ -318,6 +388,7 @@ export default function App() {
                 sendTick({
                   map_name: mapNameRef.current,
                   is_first_tick: true,
+                  shield_enabled: shieldEnabledRef.current,
                   agent_pos: indexToCoord(nextPos.row, nextPos.col, size),
                   goal_pos: indexToCoord(nextActiveTarget.row, nextActiveTarget.col, size),
                   dynamic_obstacles: calculatedNextDyn.map(o => indexToCoord(o.row, o.col, size)),
@@ -349,6 +420,7 @@ export default function App() {
               isWaitingForResponseRef.current = true;
               sendTick({
                 map_name: mapNameRef.current,
+                shield_enabled: shieldEnabledRef.current,
                 agent_pos: indexToCoord(nextPos.row, nextPos.col, size),
                 goal_pos: indexToCoord(activeTarget.row, activeTarget.col, size),
                 dynamic_obstacles: calculatedNextDyn.map(o => indexToCoord(o.row, o.col, size)),
@@ -370,9 +442,260 @@ export default function App() {
     }, []),
   });
 
+  const raceWsRef = useRef({ disconnect: null, sendTick: null });
+
+  // ── WebSocket yarış simülasyon hook ──
+  const raceSim = useRaceSimulation({
+    onResponse: useCallback((res) => {
+      isWaitingForResponseRef.current = false;
+
+      if (res.collision) {
+        setCollisionOccurred(true);
+      }
+
+      const racers = res.racers || [];
+      // Geriye dönük uyumluluk fallbacks
+      if (racers.length === 0) {
+        if (res.racer1) racers.push({ ...res.racer1, id: 0, model_key: racer1ModelRef.current });
+        if (res.racer2) racers.push({ ...res.racer2, id: 1, model_key: racer2ModelRef.current });
+      }
+
+      racers.forEach(r => {
+        if (r.shield_triggered) {
+          const colors = ["🔵 Racer 1", "🟠 Racer 2", "💗 Racer 3", "🟢 Racer 4", "🟣 Racer 5"];
+          const racerColorName = colors[r.id % colors.length];
+          const modelLabel = r.model_key ? r.model_key.toUpperCase() : `RACER ${r.id + 1}`;
+          const msg = `🛡️ [Kalkan] ${racerColorName} (${modelLabel}) çarpışma/döngü engelledi!`;
+          const newId = Date.now() + '-shield-' + r.id;
+          
+          setNotifications(prev => {
+            if (prev.some(n => n.message === msg)) return prev;
+            return [...prev, { id: newId, message: msg, type: 'shield' }];
+          });
+          
+          setTimeout(() => {
+            setNotifications(prev => prev.filter(n => n.id !== newId));
+          }, 3500);
+        }
+
+        if (r.agent_pos) {
+          // Hedefe ulaşan ajanı haritadan sil (null), diğerleri normal konuma gider
+          if (r.reached_goal) {
+            if (r.id === 0) setRacer1Pos(null);
+            else if (r.id === 1) setRacer2Pos(null);
+            else if (r.id === 2) setRacer3Pos(null);
+            else if (r.id === 3) setRacer4Pos(null);
+            else if (r.id === 4) setRacer5Pos(null);
+          } else {
+            const nextPos = coordToIndex(r.agent_pos.x, r.agent_pos.y, size);
+            if (r.id === 0) setRacer1Pos(nextPos);
+            else if (r.id === 1) setRacer2Pos(nextPos);
+            else if (r.id === 2) setRacer3Pos(nextPos);
+            else if (r.id === 3) setRacer4Pos(nextPos);
+            else if (r.id === 4) setRacer5Pos(nextPos);
+          }
+        }
+
+        if (r.id === 0) setRacer1LastAction(r);
+        else if (r.id === 1) setRacer2LastAction(r);
+        else if (r.id === 2) setRacer3LastAction(r);
+        else if (r.id === 3) setRacer4LastAction(r);
+        else if (r.id === 4) setRacer5LastAction(r);
+
+        // Hedefe ulaşan ajan için başarı bildirimi (sadece bir kez)
+        if (r.reached_goal && !finishedRacersRef.current.has(r.id)) {
+          finishedRacersRef.current.add(r.id);
+          const colors = ["🔵 Racer 1", "🟠 Racer 2", "💗 Racer 3", "🟢 Racer 4", "🟣 Racer 5"];
+          const racerColorName = colors[r.id % colors.length];
+          const modelLabel = r.model_key ? r.model_key.toUpperCase() : `RACER ${r.id + 1}`;
+          const msg = `🎉 ${racerColorName} (${modelLabel}) yarışı tamamladı!`;
+          const newId = Date.now() + '-finish-' + r.id;
+          setNotifications(prev => [...prev, { id: newId, message: msg, type: 'finish' }]);
+          setTimeout(() => {
+            setNotifications(prev => prev.filter(n => n.id !== newId));
+          }, 6000);
+          console.log(`[RACE FINISH] ${msg}`);
+        }
+
+        // Canlı kaza ve istatistik takibi
+        if (r.done && racerStatsRef.current[r.id] === undefined) {
+          racerStatsRef.current[r.id] = {
+            id: r.id,
+            name: ["🔵 Racer 1", "🟠 Racer 2", "💗 Racer 3", "🟢 Racer 4", "🟣 Racer 5"][r.id % 5],
+            model: r.model_key ? r.model_key.toUpperCase() : `RACER ${r.id + 1}`,
+            status: r.reached_goal ? 'finished' : 'crashed',
+            steps: totalStepsRef.current,
+            reward: r.reward
+          };
+
+          if (r.reward <= -40.0) {
+            if (!crashedRacersRef.current.has(r.id)) {
+              crashedRacersRef.current.add(r.id);
+              const colors = ["🔵 Racer 1", "🟠 Racer 2", "💗 Racer 3", "🟢 Racer 4", "🟣 Racer 5"];
+              const racerColorName = colors[r.id % colors.length];
+              const modelLabel = r.model_key ? r.model_key.toUpperCase() : `RACER ${r.id + 1}`;
+              const msg = `💥 ${racerColorName} (${modelLabel}) çarpışarak elendi!`;
+              const newId = Date.now() + '-' + r.id;
+              setNotifications(prev => [...prev, { id: newId, message: msg, type: 'crash' }]);
+              setTimeout(() => {
+                setNotifications(prev => prev.filter(n => n.id !== newId));
+              }, 5000);
+              console.log(`[RACE NOTIFICATION] ${msg}`);
+            }
+          }
+        }
+      });
+
+      const allDone = racers.length > 0 && racers.every(r => r.done);
+
+      if (allDone) {
+        setIsTraining(false);
+        raceWsRef.current.disconnect?.();
+        
+        const finalRankings = Object.values(racerStatsRef.current);
+        setRaceRankings(finalRankings);
+
+        const finishedRankings = finalRankings.filter(item => item.status === 'finished');
+        let winner = 'Hiçbiri';
+        if (finishedRankings.length > 0) {
+          finishedRankings.sort((a, b) => a.steps - b.steps);
+          winner = finishedRankings[0].name.toUpperCase() + ' (' + finishedRankings[0].model + ')';
+        } else {
+          winner = 'Tüm araçlar elendi!';
+        }
+
+        console.log(`[RACE DONE] Yarış bitti! Sıralama:`, finalRankings);
+
+        setModalState({
+          show: true,
+          type: finishedRankings.length > 0 ? 'success' : 'fail',
+          steps: totalStepsRef.current,
+          reward: winner
+        });
+        return;
+      }
+
+      if (isTrainingRef.current) {
+        setTimeout(() => {
+          if (!isTrainingRef.current) return;
+          if (!isMovingRef.current) return;
+
+          const calculatedNextDyn = getNextDynamicObstacles(dynamicObstaclesRef.current);
+          updateDynamicObstacles(calculatedNextDyn);
+
+          totalStepsRef.current += 1;
+
+          isWaitingForResponseRef.current = true;
+
+          const activeModels = [
+            racer1ModelRef.current,
+            racer2ModelRef.current,
+            racer3ModelRef.current,
+            racer4ModelRef.current,
+            racer5ModelRef.current
+          ].filter(Boolean);
+
+          raceWsRef.current.sendTick?.({
+            racer_models: activeModels,
+            racer1_model: racer1ModelRef.current || 'ppo_hardcore_v2',
+            racer2_model: racer2ModelRef.current || 'sac_driver_stage_2',
+            shield_enabled: shieldEnabledRef.current,
+            dynamic_obstacles: calculatedNextDyn.map(o => indexToCoord(o.row, o.col, size)),
+            grid: baseGrid.map((r, rIdx) => r.map((c, cIdx) => {
+              if (c === 'obstacle') return 1;
+              return 0;
+            }))
+          });
+        }, simSpeed);
+      }
+    }, [size, baseGrid, simSpeed, getNextDynamicObstacles, updateDynamicObstacles]),
+    onError: useCallback((msg) => {
+      console.error('[WS RACE ERROR] Hata:', msg);
+      setIsTraining(false);
+    }, [])
+  });
+
+  // Assign the ref immediately after initialization
+  useEffect(() => {
+    raceWsRef.current.disconnect = raceSim.disconnect;
+    raceWsRef.current.sendTick = raceSim.sendTick;
+  }, [raceSim.disconnect, raceSim.sendTick]);
+
+  const { connect: connectRace, disconnect: disconnectRace, sendTick: sendRaceTick, connected: connectedRace } = raceSim;
+
+  // Özel Yarış Pistlerini Oluşturma Şablonu
+  const generateRaceTrack = (trackName) => {
+    setSelectedTrack(trackName);
+    setSize(15);
+    const newGrid = createEmptyGrid(15);
+    const startCell = { row: 13, col: 2 };
+    const goalCell = { row: 13, col: 12 };
+
+    if (trackName === 'monaco') {
+      // Monaco Grand Prix: Kıvrımlı yol, orta kısımda büyük engel adası ve şikanlar
+      for (let r = 3; r <= 11; r++) {
+        newGrid[r][7] = 'obstacle';
+      }
+      for (let c = 3; c <= 11; c++) {
+        newGrid[3][c] = 'obstacle';
+        newGrid[11][c] = 'obstacle';
+      }
+      newGrid[7][3] = 'obstacle';
+      newGrid[7][11] = 'obstacle';
+    } else if (trackName === 'suzuka') {
+      // Suzuka S-Curves: Zikzaklı, sol-sağ kaçış alanları olan dar yol
+      for (let i = 2; i <= 12; i++) {
+        if (i !== 7) {
+          newGrid[i][4] = 'obstacle';
+          newGrid[i][10] = 'obstacle';
+        }
+      }
+      for (let c = 4; c <= 10; c++) {
+        if (c !== 7) {
+          newGrid[4][c] = 'obstacle';
+          newGrid[10][c] = 'obstacle';
+        }
+      }
+    } else if (trackName === 'redbull') {
+      // Red Bull Ring: Hızlı düzlükler ve ortada keskin zikzak bariyeri
+      for (let r = 5; r <= 9; r++) {
+        for (let c = 4; c <= 10; c++) {
+          newGrid[r][c] = 'obstacle';
+        }
+      }
+      newGrid[2][7] = 'obstacle';
+      newGrid[12][7] = 'obstacle';
+    }
+
+    newGrid[startCell.row][startCell.col] = 'start';
+    newGrid[goalCell.row][goalCell.col] = 'goal';
+
+    setBaseGrid(newGrid);
+    setDynamicObstacles([]);
+    setStartPos(startCell);
+    setGoalPos(goalCell);
+    setAgentPos(null);
+    setRacer1Pos(null);
+    setRacer2Pos(null);
+    setRacer3Pos(null);
+    setRacer4Pos(null);
+    setRacer5Pos(null);
+    setIsMoving(false);
+    setIsTraining(false);
+    setLastAction(null);
+    setRacer1LastAction(null);
+    setRacer2LastAction(null);
+    setRacer3LastAction(null);
+    setRacer4LastAction(null);
+    setRacer5LastAction(null);
+    setCollisionOccurred(false);
+    disconnect();
+    disconnectRace();
+  };
+
   // WebSocket bağlandığında ilk adımı göndererek simülasyonu başlat
   useEffect(() => {
-    if (connected && isTraining && startPos && goalPos) {
+    if (connected && isTraining && startPos && goalPos && !raceMode) {
       setAgentPos(startPos);
       console.log('[SIM] Simülasyon başlatılıyor, ilk adım gönderiliyor...');
       const activeTarget = (waypoints.length > 0 && currentWaypointIndexRef.current < waypoints.length) ? waypoints[currentWaypointIndexRef.current] : goalPos;
@@ -380,6 +703,7 @@ export default function App() {
       sendTick({
         map_name: mapNameRef.current,
         is_first_tick: true,
+        shield_enabled: shieldEnabledRef.current,
         agent_pos: indexToCoord(startPos.row, startPos.col, size),
         goal_pos: indexToCoord(activeTarget.row, activeTarget.col, size),
         dynamic_obstacles: dynamicObstaclesRef.current.map(o => indexToCoord(o.row, o.col, size)),
@@ -390,14 +714,56 @@ export default function App() {
           return 0;
         }))
       });
-    } else if (!connected) {
+    } else if (!connected && !raceMode) {
       setAgentPos(null);
     }
-  }, [connected, isTraining, startPos, goalPos, waypoints, size, baseGrid, sendTick]);
+  }, [connected, isTraining, startPos, goalPos, waypoints, size, baseGrid, sendTick, raceMode]);
+
+  // WebSocket yarış bağlandığında ilk adımı göndererek yarış simülasyonunu başlat
+  useEffect(() => {
+    if (connectedRace && isTraining && startPos && goalPos && raceMode) {
+      setRacer1Pos(startPos);
+      setRacer2Pos(startPos);
+      setRacer3Pos(startPos);
+      setRacer4Pos(startPos);
+      setRacer5Pos(startPos);
+      console.log('[RACE SIM] Yarış başlatılıyor, ilk adım gönderiliyor...');
+      isWaitingForResponseRef.current = true;
+
+      const activeModels = [
+        racer1ModelRef.current,
+        racer2ModelRef.current,
+        racer3ModelRef.current,
+        racer4ModelRef.current,
+        racer5ModelRef.current
+      ].filter(Boolean);
+
+      sendRaceTick({
+        is_first_tick: true,
+        racer_models: activeModels,
+        racer1_model: racer1ModelRef.current || 'ppo_hardcore_v2',
+        racer2_model: racer2ModelRef.current || 'sac_driver_stage_2',
+        shield_enabled: shieldEnabledRef.current,
+        start_pos: indexToCoord(startPos.row, startPos.col, size),
+        goal_pos: indexToCoord(goalPos.row, goalPos.col, size),
+        dynamic_obstacles: dynamicObstaclesRef.current.map(o => indexToCoord(o.row, o.col, size)),
+        grid: baseGrid.map((r, rIdx) => r.map((c, cIdx) => {
+          if (c === 'obstacle') return 1;
+          return 0;
+        }))
+      });
+    } else if (!connectedRace && raceMode) {
+      setRacer1Pos(null);
+      setRacer2Pos(null);
+      setRacer3Pos(null);
+      setRacer4Pos(null);
+      setRacer5Pos(null);
+    }
+  }, [connectedRace, isTraining, startPos, goalPos, raceMode, size, baseGrid, sendRaceTick]);
 
   // Hareketi duraklatıp tekrar başlattığımızda simülasyonu devam ettir
   useEffect(() => {
-    if (connected && isTraining && isMoving && agentPos && !isWaitingForResponseRef.current) {
+    if (connected && isTraining && isMoving && agentPos && !isWaitingForResponseRef.current && !raceMode) {
       console.log('[SIM] Harekete devam ediliyor, adım gönderiliyor...');
       const activeTarget = (waypoints.length > 0 && currentWaypointIndexRef.current < waypoints.length)
         ? waypoints[currentWaypointIndexRef.current]
@@ -409,6 +775,7 @@ export default function App() {
       isWaitingForResponseRef.current = true;
       sendTick({
         map_name: mapNameRef.current,
+        shield_enabled: shieldEnabledRef.current,
         agent_pos: indexToCoord(agentPos.row, agentPos.col, size),
         goal_pos: indexToCoord(activeTarget.row, activeTarget.col, size),
         dynamic_obstacles: calculatedNextDyn.map(o => indexToCoord(o.row, o.col, size)),
@@ -438,11 +805,29 @@ export default function App() {
 
     dynamicObstacles.forEach(o => { dg[o.row][o.col] = 'dynamic'; });
 
-    if (agentPos) {
-      dg[agentPos.row][agentPos.col] = 'agent';
+    if (raceMode) {
+      if (racer1Pos) {
+        dg[racer1Pos.row][racer1Pos.col] = 'racer1';
+      }
+      if (racer2Pos) {
+        dg[racer2Pos.row][racer2Pos.col] = 'racer2';
+      }
+      if (racer3Pos) {
+        dg[racer3Pos.row][racer3Pos.col] = 'racer3';
+      }
+      if (racer4Pos) {
+        dg[racer4Pos.row][racer4Pos.col] = 'racer4';
+      }
+      if (racer5Pos) {
+        dg[racer5Pos.row][racer5Pos.col] = 'racer5';
+      }
+    } else {
+      if (agentPos) {
+        dg[agentPos.row][agentPos.col] = 'agent';
+      }
     }
     return dg;
-  }, [baseGrid, dynamicObstacles, agentPos, waypoints, currentWaypointIndex, trafficLights, lightsGreen]);
+  }, [baseGrid, dynamicObstacles, agentPos, waypoints, currentWaypointIndex, trafficLights, lightsGreen, raceMode, racer1Pos, racer2Pos, racer3Pos, racer4Pos, racer5Pos]);
 
   /* ─── Yerel hareket tiki (dinamik engeller için) ─── */
   const tick = useCallback(() => {
@@ -628,11 +1013,17 @@ export default function App() {
   const handleTrainClick = useCallback(async () => {
     if (!startPos || !goalPos) return;
 
-    // Eğitim zaten çalışıyorsa durdur
+    // Eğitim/yarış zaten çalışıyorsa durdur
     if (isTraining) {
-      disconnect();
+      if (raceMode) {
+        disconnectRace();
+      } else {
+        disconnect();
+      }
       setIsTraining(false);
       setLastAction(null);
+      setRacer1LastAction(null);
+      setRacer2LastAction(null);
       return;
     }
 
@@ -640,42 +1031,59 @@ export default function App() {
     setSaveStatus(null);
 
     try {
-      const payload = buildGameMapDTO({
-        mapName: mapNameRef.current,
-        size,
-        baseGrid,
-        dynamicObstacles,
-        startPos,
-        goalPos,
-      });
+      if (raceMode) {
+        // Durak ve yarış durumlarını sıfırla
+        totalStepsRef.current = 0;
+        setCollisionOccurred(false);
+        setNotifications([]);
+        setRaceRankings([]);
+        crashedRacersRef.current.clear();
+        finishedRacersRef.current.clear();
+        racerStatsRef.current = {};
+        setRacer1Pos(startPos);
+        setRacer2Pos(startPos);
 
-      // Haritayı arka planda kaydet — başarısız olsa bile simülasyon başlar
-      saveMap(payload)
-        .then(() => setSaveStatus('ok'))
-        .catch((err) => {
-          console.warn('[MAP] Harita kaydedilemedi, simülasyon devam ediyor:', err);
-          setSaveStatus('ok'); // UI'da engelleme yapma
+        connectRace();
+        setIsTraining(true);
+        setIsMoving(true);
+      } else {
+        const payload = buildGameMapDTO({
+          mapName: mapNameRef.current,
+          size,
+          baseGrid,
+          dynamicObstacles,
+          startPos,
+          goalPos,
         });
 
-      // Durak durumlarını sıfırla
-      setCurrentWaypointIndex(0);
-      currentWaypointIndexRef.current = 0;
+        // Haritayı arka planda kaydet — başarısız olsa bile simülasyon başlar
+        saveMap(payload)
+          .then(() => setSaveStatus('ok'))
+          .catch((err) => {
+            console.warn('[MAP] Harita kaydedilemedi, simülasyon devam ediyor:', err);
+            setSaveStatus('ok'); // UI'da engelleme yapma
+          });
 
-      // İstatistik referanslarını sıfırla
-      totalRewardRef.current = 0;
-      totalStepsRef.current = 0;
+        // Durak durumlarını sıfırla
+        setCurrentWaypointIndex(0);
+        currentWaypointIndexRef.current = 0;
 
-      // WebSocket bağlantısını hemen kur
-      connect();
-      setIsTraining(true);
-      setIsMoving(true); // Hareketi otomatik olarak başlat
+        // İstatistik referanslarını sıfırla
+        totalRewardRef.current = 0;
+        totalStepsRef.current = 0;
+
+        // WebSocket bağlantısını hemen kur
+        connect();
+        setIsTraining(true);
+        setIsMoving(true); // Hareketi otomatik olarak başlat
+      }
     } catch (err) {
       console.error('Başlatma hatası:', err);
       setSaveStatus('error');
     } finally {
       setIsSaving(false);
     }
-  }, [isTraining, startPos, goalPos, size, baseGrid, dynamicObstacles, connect, disconnect]);
+  }, [isTraining, raceMode, startPos, goalPos, size, baseGrid, dynamicObstacles, connect, disconnect, connectRace, disconnectRace]);
 
   const center = Math.floor(size / 2);
   const staticCount = countType(baseGrid, 'obstacle');
@@ -689,6 +1097,322 @@ export default function App() {
         <h1>Grid World Simülatörü</h1>
         <p>Ortam tasarla, engelleri yerleştir ve ajanını eğit &nbsp;·&nbsp; Merkez (0, 0)</p>
       </header>
+
+      {/* 🏁 Yarış Modu Paneli */}
+      <div style={{
+        background: 'linear-gradient(135deg, #1e293b 0%, #0f172a 100%)',
+        border: '1px solid #334155',
+        boxShadow: '0 4px 20px rgba(0, 0, 0, 0.25)',
+        borderRadius: '12px',
+        padding: '16px 20px',
+        maxWidth: '1200px',
+        margin: '10px auto 20px auto',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '12px',
+        transition: 'all 0.3s ease-in-out',
+        fontFamily: "'Outfit', sans-serif"
+      }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span style={{ fontSize: '24px' }}>🏁</span>
+            <div>
+              <h2 style={{ margin: 0, fontSize: '18px', color: '#f1f5f9', fontWeight: 'bold' }}>
+                YAPAY ZEKA YARIŞ MODU (Yöntem 2)
+              </h2>
+              <p style={{ margin: 0, fontSize: '12px', color: '#94a3b8' }}>
+                5 farklı otonom sürüş modelini aynı pistte yarıştırın! Ajanlar birbirini dinamik engel olarak görüp kaçınacaktır.
+              </p>
+            </div>
+          </div>
+          
+          <button
+            className={`btn ${raceMode ? 'btn-stop' : 'btn-primary'}`}
+            onClick={() => {
+              setRaceMode(prev => {
+                const next = !prev;
+                if (next) {
+                  // Yarış modu açıldığında varsayılan Monaco pistini yükle
+                  setTimeout(() => generateRaceTrack('monaco'), 100);
+                } else {
+                  reset();
+                }
+                return next;
+              });
+            }}
+            style={{
+              padding: '8px 16px',
+              fontSize: '14px',
+              fontWeight: 'bold',
+              borderRadius: '8px',
+              boxShadow: raceMode ? '0 0 10px rgba(239, 68, 68, 0.25)' : 'none',
+              transition: 'all 0.3s'
+            }}
+          >
+            {raceMode ? '🚫 Yarış Modunu Kapat' : '🏎️ Yarış Modunu Aç!'}
+          </button>
+        </div>
+
+        {raceMode && (
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+            gap: '16px',
+            background: 'rgba(15, 23, 42, 0.6)',
+            padding: '14px',
+            borderRadius: '10px',
+            border: '1px solid #334155'
+          }}>
+            {/* Racer 1 */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              <label style={{ color: '#cbd5e1', fontWeight: 'bold', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                🔵 Racer 1
+              </label>
+              <select
+                className="select-model btn btn-secondary"
+                value={racer1Model}
+                onChange={(e) => setRacer1Model(e.target.value)}
+                disabled={isTraining}
+                style={{
+                  appearance: 'none',
+                  WebkitAppearance: 'none',
+                  MozAppearance: 'none',
+                  width: '100%',
+                  background: '#1e293b',
+                  color: '#cbd5e1',
+                  border: '1px solid #334155',
+                  borderRadius: '6px',
+                  padding: '6px 28px 6px 10px',
+                  backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23cbd5e1' d='M6 8L1 3h10z'/%3E%3C/svg%3E")`,
+                  backgroundRepeat: 'no-repeat',
+                  backgroundPosition: 'right 10px center',
+                  fontWeight: 'bold',
+                  height: '34px',
+                  cursor: 'pointer'
+                }}
+              >
+                <option value="" style={{ background: '#0f172a', color: '#888' }}>— DEVRE DIŞI —</option>
+                {availableModels.map(m => (
+                  <option key={m.key} value={m.key} style={{ background: '#0f172a', color: '#fff' }}>
+                    {m.type} - {m.key.toUpperCase()}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Racer 2 */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              <label style={{ color: '#cbd5e1', fontWeight: 'bold', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                🟠 Racer 2
+              </label>
+              <select
+                className="select-model btn btn-secondary"
+                value={racer2Model}
+                onChange={(e) => setRacer2Model(e.target.value)}
+                disabled={isTraining}
+                style={{
+                  appearance: 'none',
+                  WebkitAppearance: 'none',
+                  MozAppearance: 'none',
+                  width: '100%',
+                  background: '#1e293b',
+                  color: '#cbd5e1',
+                  border: '1px solid #334155',
+                  borderRadius: '6px',
+                  padding: '6px 28px 6px 10px',
+                  backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23cbd5e1' d='M6 8L1 3h10z'/%3E%3C/svg%3E")`,
+                  backgroundRepeat: 'no-repeat',
+                  backgroundPosition: 'right 10px center',
+                  fontWeight: 'bold',
+                  height: '34px',
+                  cursor: 'pointer'
+                }}
+              >
+                <option value="" style={{ background: '#0f172a', color: '#888' }}>— DEVRE DIŞI —</option>
+                {availableModels.map(m => (
+                  <option key={m.key} value={m.key} style={{ background: '#0f172a', color: '#fff' }}>
+                    {m.type} - {m.key.toUpperCase()}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Racer 3 */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              <label style={{ color: '#cbd5e1', fontWeight: 'bold', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                💗 Racer 3
+              </label>
+              <select
+                className="select-model btn btn-secondary"
+                value={racer3Model}
+                onChange={(e) => setRacer3Model(e.target.value)}
+                disabled={isTraining}
+                style={{
+                  appearance: 'none',
+                  WebkitAppearance: 'none',
+                  MozAppearance: 'none',
+                  width: '100%',
+                  background: '#1e293b',
+                  color: '#cbd5e1',
+                  border: '1px solid #334155',
+                  borderRadius: '6px',
+                  padding: '6px 28px 6px 10px',
+                  backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23cbd5e1' d='M6 8L1 3h10z'/%3E%3C/svg%3E")`,
+                  backgroundRepeat: 'no-repeat',
+                  backgroundPosition: 'right 10px center',
+                  fontWeight: 'bold',
+                  height: '34px',
+                  cursor: 'pointer'
+                }}
+              >
+                <option value="" style={{ background: '#0f172a', color: '#888' }}>— DEVRE DIŞI —</option>
+                {availableModels.map(m => (
+                  <option key={m.key} value={m.key} style={{ background: '#0f172a', color: '#fff' }}>
+                    {m.type} - {m.key.toUpperCase()}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Racer 4 */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              <label style={{ color: '#cbd5e1', fontWeight: 'bold', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                🟢 Racer 4
+              </label>
+              <select
+                className="select-model btn btn-secondary"
+                value={racer4Model}
+                onChange={(e) => setRacer4Model(e.target.value)}
+                disabled={isTraining}
+                style={{
+                  appearance: 'none',
+                  WebkitAppearance: 'none',
+                  MozAppearance: 'none',
+                  width: '100%',
+                  background: '#1e293b',
+                  color: '#cbd5e1',
+                  border: '1px solid #334155',
+                  borderRadius: '6px',
+                  padding: '6px 28px 6px 10px',
+                  backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23cbd5e1' d='M6 8L1 3h10z'/%3E%3C/svg%3E")`,
+                  backgroundRepeat: 'no-repeat',
+                  backgroundPosition: 'right 10px center',
+                  fontWeight: 'bold',
+                  height: '34px',
+                  cursor: 'pointer'
+                }}
+              >
+                <option value="" style={{ background: '#0f172a', color: '#888' }}>— DEVRE DIŞI —</option>
+                {availableModels.map(m => (
+                  <option key={m.key} value={m.key} style={{ background: '#0f172a', color: '#fff' }}>
+                    {m.type} - {m.key.toUpperCase()}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Racer 5 */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              <label style={{ color: '#cbd5e1', fontWeight: 'bold', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                🟣 Racer 5
+              </label>
+              <select
+                className="select-model btn btn-secondary"
+                value={racer5Model}
+                onChange={(e) => setRacer5Model(e.target.value)}
+                disabled={isTraining}
+                style={{
+                  appearance: 'none',
+                  WebkitAppearance: 'none',
+                  MozAppearance: 'none',
+                  width: '100%',
+                  background: '#1e293b',
+                  color: '#cbd5e1',
+                  border: '1px solid #334155',
+                  borderRadius: '6px',
+                  padding: '6px 28px 6px 10px',
+                  backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23cbd5e1' d='M6 8L1 3h10z'/%3E%3C/svg%3E")`,
+                  backgroundRepeat: 'no-repeat',
+                  backgroundPosition: 'right 10px center',
+                  fontWeight: 'bold',
+                  height: '34px',
+                  cursor: 'pointer'
+                }}
+              >
+                <option value="" style={{ background: '#0f172a', color: '#888' }}>— DEVRE DIŞI —</option>
+                {availableModels.map(m => (
+                  <option key={m.key} value={m.key} style={{ background: '#0f172a', color: '#fff' }}>
+                    {m.type} - {m.key.toUpperCase()}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Race Tracks */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              <label style={{ color: '#cbd5e1', fontWeight: 'bold', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                🏁 Yarış Pisti Seç:
+              </label>
+              <div style={{ display: 'flex', gap: '6px' }}>
+                <button
+                  className="btn btn-secondary"
+                  onClick={() => generateRaceTrack('monaco')}
+                  disabled={isTraining}
+                  style={{
+                    flex: 1,
+                    fontSize: '12px',
+                    padding: '6px',
+                    whiteSpace: 'nowrap',
+                    border: selectedTrack === 'monaco' ? '1px solid #38bdf8' : '1px solid #334155',
+                    background: selectedTrack === 'monaco' ? 'rgba(56, 189, 248, 0.1)' : '#1e293b',
+                    color: selectedTrack === 'monaco' ? '#38bdf8' : '#cbd5e1',
+                    fontWeight: selectedTrack === 'monaco' ? 'bold' : 'normal',
+                    transition: 'all 0.2s'
+                  }}
+                >
+                  Pist 1
+                </button>
+                <button
+                  className="btn btn-secondary"
+                  onClick={() => generateRaceTrack('suzuka')}
+                  disabled={isTraining}
+                  style={{
+                    flex: 1,
+                    fontSize: '12px',
+                    padding: '6px',
+                    whiteSpace: 'nowrap',
+                    border: selectedTrack === 'suzuka' ? '1px solid #38bdf8' : '1px solid #334155',
+                    background: selectedTrack === 'suzuka' ? 'rgba(56, 189, 248, 0.1)' : '#1e293b',
+                    color: selectedTrack === 'suzuka' ? '#38bdf8' : '#cbd5e1',
+                    fontWeight: selectedTrack === 'suzuka' ? 'bold' : 'normal',
+                    transition: 'all 0.2s'
+                  }}
+                >
+                  Pist 2
+                </button>
+                <button
+                  className="btn btn-secondary"
+                  onClick={() => generateRaceTrack('redbull')}
+                  disabled={isTraining}
+                  style={{
+                    flex: 1,
+                    fontSize: '12px',
+                    padding: '6px',
+                    whiteSpace: 'nowrap',
+                    border: selectedTrack === 'redbull' ? '1px solid #38bdf8' : '1px solid #334155',
+                    background: selectedTrack === 'redbull' ? 'rgba(56, 189, 248, 0.1)' : '#1e293b',
+                    color: selectedTrack === 'redbull' ? '#38bdf8' : '#cbd5e1',
+                    fontWeight: selectedTrack === 'redbull' ? 'bold' : 'normal',
+                    transition: 'all 0.2s'
+                  }}
+                >
+                  Pist 3
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
 
       {/* Mod seçici */}
       <div className="mode-bar">
@@ -719,8 +1443,34 @@ export default function App() {
       <div className="control-panel">
         <div className="control-group">
           <label htmlFor="grid-size-select">Grid:</label>
-          <select id="grid-size-select" className="select-grid-size" value={size} onChange={handleSizeChange}>
-            {GRID_SIZES.map(s => <option key={s} value={s}>{s}×{s}</option>)}
+          <select
+            id="grid-size-select"
+            className="select-grid-size btn btn-secondary"
+            value={size}
+            onChange={handleSizeChange}
+            style={{
+              appearance: 'none',
+              WebkitAppearance: 'none',
+              MozAppearance: 'none',
+              background: 'linear-gradient(135deg, #1e293b 0%, #0f172a 100%)',
+              color: '#c9d1d9',
+              border: '1px solid #30363d',
+              boxShadow: '0 0 10px rgba(255, 255, 255, 0.05)',
+              borderRadius: '6px',
+              padding: '6px 28px 6px 12px',
+              backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23c9d1d9' d='M6 8L1 3h10z'/%3E%3C/svg%3E")`,
+              backgroundRepeat: 'no-repeat',
+              backgroundPosition: 'right 10px center',
+              cursor: 'pointer',
+              fontWeight: 'bold',
+              fontFamily: 'monospace',
+              outline: 'none',
+              transition: 'all 0.3s',
+              height: '34px',
+              lineHeight: '20px'
+            }}
+          >
+            {GRID_SIZES.map(s => <option key={s} value={s} style={{ background: '#0f172a', color: '#fff' }}>{s}×{s}</option>)}
           </select>
         </div>
         <div className="control-divider" />
@@ -756,12 +1506,21 @@ export default function App() {
             id="difficulty-select"
             className="select-difficulty btn btn-secondary"
             style={{
+              appearance: 'none',
+              WebkitAppearance: 'none',
+              MozAppearance: 'none',
               background: '#21262d',
               color: '#c9d1d9',
               border: '1px solid #30363d',
               borderRadius: '6px',
+              padding: '6px 28px 6px 12px',
+              backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23c9d1d9' d='M6 8L1 3h10z'/%3E%3C/svg%3E")`,
+              backgroundRepeat: 'no-repeat',
+              backgroundPosition: 'right 10px center',
               cursor: 'pointer',
-              fontWeight: '500'
+              fontWeight: '500',
+              height: '34px',
+              lineHeight: '20px'
             }}
             onChange={(e) => {
               const diff = e.target.value;
@@ -828,17 +1587,25 @@ export default function App() {
             value={theme}
             onChange={(e) => setTheme(e.target.value)}
             style={{
+              appearance: 'none',
+              WebkitAppearance: 'none',
+              MozAppearance: 'none',
               background: 'linear-gradient(135deg, #2e1065 0%, #0f172a 100%)',
               color: '#c084fc',
               border: '1px solid #7c3aed',
               boxShadow: '0 0 10px rgba(124, 58, 237, 0.2)',
               borderRadius: '6px',
-              padding: '6px 10px',
+              padding: '6px 28px 6px 12px',
+              backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23c084fc' d='M6 8L1 3h10z'/%3E%3C/svg%3E")`,
+              backgroundRepeat: 'no-repeat',
+              backgroundPosition: 'right 10px center',
               cursor: 'pointer',
               fontWeight: 'bold',
               fontFamily: 'monospace',
               outline: 'none',
-              transition: 'all 0.3s'
+              transition: 'all 0.3s',
+              height: '34px',
+              lineHeight: '20px'
             }}
           >
             <option value="city" style={{ background: '#0f172a', color: '#fff' }}>🚗 Şehir</option>
@@ -861,17 +1628,25 @@ export default function App() {
             value={activeModel}
             onChange={handleModelChange}
             style={{
+              appearance: 'none',
+              WebkitAppearance: 'none',
+              MozAppearance: 'none',
               background: 'linear-gradient(135deg, #1e293b 0%, #0f172a 100%)',
               color: '#38bdf8',
               border: '1px solid #0284c7',
               boxShadow: '0 0 10px rgba(2, 132, 199, 0.2)',
               borderRadius: '6px',
-              padding: '6px 10px',
+              padding: '6px 28px 6px 12px',
+              backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%2338bdf8' d='M6 8L1 3h10z'/%3E%3C/svg%3E")`,
+              backgroundRepeat: 'no-repeat',
+              backgroundPosition: 'right 10px center',
               cursor: 'pointer',
               fontWeight: 'bold',
               fontFamily: 'monospace',
               outline: 'none',
-              transition: 'all 0.3s'
+              transition: 'all 0.3s',
+              height: '34px',
+              lineHeight: '20px'
             }}
           >
             {availableModels.map(m => (
@@ -880,6 +1655,50 @@ export default function App() {
               </option>
             ))}
           </select>
+        </div>
+        <div className="control-divider" />
+
+        {/* 🛡️ Sürüş Desteği (Kalkan Modu) */}
+        <div className="control-group" style={{ display: 'flex', alignItems: 'center', gap: '1px' }}>
+          <span className="control-label" style={{ color: '#10b981', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '4px', marginRight: '6px' }}>
+            🛡️ Kalkan:
+          </span>
+          <button
+            className={`btn ${shieldEnabled ? 'btn-success' : 'btn-secondary'}`}
+            onClick={() => setShieldEnabled(true)}
+            style={{
+              background: shieldEnabled ? 'linear-gradient(135deg, #059669 0%, #10b981 100%)' : '#21262d',
+              color: shieldEnabled ? '#fff' : '#8b949e',
+              border: shieldEnabled ? '1px solid #10b981' : '1px solid #30363d',
+              boxShadow: shieldEnabled ? '0 0 10px rgba(16, 185, 129, 0.3)' : 'none',
+              borderTopRightRadius: 0,
+              borderBottomRightRadius: 0,
+              padding: '6px 12px',
+              fontWeight: 'bold',
+              cursor: 'pointer',
+              transition: 'all 0.3s'
+            }}
+          >
+            Yardımlı
+          </button>
+          <button
+            className={`btn ${!shieldEnabled ? 'btn-danger' : 'btn-secondary'}`}
+            onClick={() => setShieldEnabled(false)}
+            style={{
+              background: !shieldEnabled ? 'linear-gradient(135deg, #dc2626 0%, #ef4444 100%)' : '#21262d',
+              color: !shieldEnabled ? '#fff' : '#8b949e',
+              border: !shieldEnabled ? '1px solid #ef4444' : '1px solid #30363d',
+              boxShadow: !shieldEnabled ? '0 0 10px rgba(239, 68, 68, 0.3)' : 'none',
+              borderTopLeftRadius: 0,
+              borderBottomLeftRadius: 0,
+              padding: '6px 12px',
+              fontWeight: 'bold',
+              cursor: 'pointer',
+              transition: 'all 0.3s'
+            }}
+          >
+            Yardımsız
+          </button>
         </div>
         <div className="control-divider" />
 
@@ -931,6 +1750,24 @@ export default function App() {
               🧠 Ajan Karar Analitiği
             </h3>
             <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+              {lastAction.shield_triggered && (
+                <span style={{
+                  background: 'rgba(56, 189, 248, 0.15)',
+                  color: '#38bdf8',
+                  padding: '2px 8px',
+                  borderRadius: '4px',
+                  fontSize: '11px',
+                  border: '1px solid #0284c7',
+                  fontWeight: 'bold',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  boxShadow: '0 0 8px rgba(56, 189, 248, 0.3)',
+                  animation: 'pulse 1.5s infinite'
+                }}>
+                  🛡️ KALKAN MÜDAHALESİ!
+                </span>
+              )}
               <span style={{
                 background: '#1e293b',
                 padding: '2px 6px',
@@ -1016,10 +1853,30 @@ export default function App() {
           lastAction={lastAction}
           simSpeed={simSpeed}
           theme={theme}
+          raceMode={raceMode}
+          racer1Pos={racer1Pos}
+          racer2Pos={racer2Pos}
+          racer1LastAction={racer1LastAction}
+          racer2LastAction={racer2LastAction}
+          racer1Model={racer1Model}
+          racer2Model={racer2Model}
+          racerPositions={[racer1Pos, racer2Pos, racer3Pos, racer4Pos, racer5Pos]}
+          racerLastActions={[racer1LastAction, racer2LastAction, racer3LastAction, racer4LastAction, racer5LastAction]}
+          racerModels={[racer1Model, racer2Model, racer3Model, racer4Model, racer5Model]}
         />
       ) : (
         <Grid grid={displayGrid} onCellClick={handleCellClick}
-          size={size} center={center} indexToCoord={indexToCoord} activeMode={mode} />
+          size={size} center={center} indexToCoord={indexToCoord} activeMode={mode}
+          racerModels={[racer1Model, racer2Model, racer3Model, racer4Model, racer5Model]}
+          agentShieldTriggered={lastAction?.shield_triggered}
+          racerShields={[
+            racer1LastAction?.shield_triggered,
+            racer2LastAction?.shield_triggered,
+            racer3LastAction?.shield_triggered,
+            racer4LastAction?.shield_triggered,
+            racer5LastAction?.shield_triggered
+          ]}
+        />
       )}
 
       <div className="legend" role="list">
@@ -1032,6 +1889,51 @@ export default function App() {
         <div className="legend-item"><span className="legend-dot legend-dot--dynamic" />{themeLabels[theme]?.dynamic ?? 'Hareketli Engel'}</div>
         <div className="legend-item legend-item--axis"><span className="legend-axis-icon">＋</span>Orijin (0,0)</div>
       </div>
+
+      {/* Notifications Panel */}
+      {notifications.length > 0 && (
+        <div style={{
+          position: 'fixed',
+          bottom: '24px',
+          right: '24px',
+          zIndex: 9999,
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '10px',
+          maxWidth: '360px',
+          pointerEvents: 'none'
+        }}>
+          {notifications.map(n => {
+            const isFinish = n.type === 'finish';
+            const isShield = n.type === 'shield';
+            return (
+              <div key={n.id} style={{
+                background: isFinish ? 'rgba(6, 25, 18, 0.97)' : isShield ? 'rgba(13, 25, 38, 0.97)' : 'rgba(13, 17, 23, 0.95)',
+                border: `1px solid ${isFinish ? '#10b981' : isShield ? '#38bdf8' : '#ef4444'}`,
+                boxShadow: isFinish
+                  ? '0 0 18px rgba(16, 185, 129, 0.5), 0 0 6px rgba(16, 185, 129, 0.2)'
+                  : isShield
+                  ? '0 0 18px rgba(56, 189, 248, 0.5), 0 0 6px rgba(56, 189, 248, 0.2)'
+                  : '0 0 15px rgba(239, 68, 68, 0.4)',
+                color: '#ffffff',
+                padding: '12px 18px',
+                borderRadius: '8px',
+                fontSize: '13px',
+                fontWeight: 'bold',
+                fontFamily: 'system-ui, -apple-system, sans-serif',
+                animation: 'slideIn 0.3s ease-out forwards',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: '12px',
+                pointerEvents: 'auto'
+              }}>
+                <span style={{ color: isFinish ? '#6ee7b7' : isShield ? '#7dd3fc' : '#ffffff' }}>{n.message}</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       {/* GAME OVER / SUCCESS POPUP MODAL */}
       {modalState.show && (
@@ -1051,12 +1953,13 @@ export default function App() {
             border: modalState.type === 'success' ? '2px solid #3fb950' : '2px solid #f85149',
             borderRadius: '16px',
             padding: '40px',
-            width: '380px',
+            width: raceMode ? '560px' : '380px',
             textAlign: 'center',
             boxShadow: '0 20px 40px rgba(0, 0, 0, 0.6)',
             animation: 'scaleUp 0.3s cubic-bezier(0.34, 1.56, 0.64, 1)',
             position: 'relative',
-            overflow: 'hidden'
+            overflow: 'hidden',
+            transition: 'width 0.3s cubic-bezier(0.25, 0.8, 0.25, 1)'
           }}>
             {/* Background Glow */}
             <div style={{
@@ -1084,7 +1987,7 @@ export default function App() {
                 letterSpacing: '2px',
                 textShadow: modalState.type === 'success' ? '0 0 10px rgba(63,185,80,0.3)' : '0 0 10px rgba(248,81,73,0.3)'
               }}>
-                {modalState.type === 'success' ? 'HEDEFE ULAŞILDI!' : 'GAME OVER!'}
+                {raceMode ? 'YARIŞ TAMAMLANDI!' : (modalState.type === 'success' ? 'HEDEFE ULAŞILDI!' : 'GAME OVER!')}
               </h2>
               <p style={{
                 color: '#8b949e',
@@ -1092,35 +1995,130 @@ export default function App() {
                 margin: '0 0 20px 0',
                 lineHeight: '1.6'
               }}>
-                {modalState.type === 'success'
-                  ? 'Ajan engelleri başarıyla aşarak hedefe güvenli bir şekilde ulaştı!'
-                  : 'Ajan bir engele çarptı veya sınırların dışına çıktı!'}
+                {raceMode
+                  ? 'Tüm yarışmacılar bitiş çizgisine ulaştı veya elendi!'
+                  : (modalState.type === 'success'
+                      ? 'Ajan engelleri başarıyla aşarak hedefe güvenli bir şekilde ulaştı!'
+                      : 'Ajan bir engele çarptı veya sınırların dışına çıktı!')}
               </p>
 
-              {/* Stats Box */}
-              <div style={{
-                display: 'flex',
-                justifyContent: 'space-around',
-                background: 'rgba(255, 255, 255, 0.05)',
-                borderRadius: '8px',
-                padding: '15px',
-                marginBottom: '25px',
-                border: '1px solid rgba(255, 255, 255, 0.1)'
-              }}>
-                <div>
-                  <div style={{ fontSize: '11px', color: '#8b949e', textTransform: 'uppercase', letterSpacing: '1px' }}>Toplam Adım</div>
-                  <div style={{ fontSize: '20px', fontWeight: 'bold', color: '#38bdf8', marginTop: '4px' }}>
-                    {modalState.steps}
+              {raceMode ? (
+                /* Premium Race Rankings Table */
+                <div style={{
+                  background: 'rgba(22, 27, 34, 0.8)',
+                  backdropFilter: 'blur(12px)',
+                  border: '1px solid rgba(255, 255, 255, 0.1)',
+                  borderRadius: '12px',
+                  padding: '16px',
+                  marginBottom: '25px',
+                  textAlign: 'left'
+                }}>
+                  <h3 style={{
+                    color: '#c9d1d9',
+                    fontSize: '14px',
+                    textTransform: 'uppercase',
+                    letterSpacing: '1.5px',
+                    margin: '0 0 12px 0',
+                    borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
+                    paddingBottom: '8px',
+                    fontFamily: "'Outfit', sans-serif"
+                  }}>
+                    🏁 Yarış Sonuçları & Sıralama
+                  </h3>
+                  
+                  <div style={{ maxHeight: '240px', overflowY: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12.5px', fontFamily: 'monospace' }}>
+                      <thead>
+                        <tr style={{ borderBottom: '1px solid rgba(255, 255, 255, 0.1)', color: '#8b949e' }}>
+                          <th style={{ padding: '6px 4px', textAlign: 'center', width: '30px' }}>#</th>
+                          <th style={{ padding: '6px 8px', textAlign: 'left' }}>Yarışçı</th>
+                          <th style={{ padding: '6px 8px', textAlign: 'left' }}>Model</th>
+                          <th style={{ padding: '6px 8px', textAlign: 'center', width: '90px' }}>Durum</th>
+                          <th style={{ padding: '6px 8px', textAlign: 'right', width: '50px' }}>Adım</th>
+                          <th style={{ padding: '6px 8px', textAlign: 'right', width: '50px' }}>Skor</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {[...raceRankings]
+                          .sort((a, b) => {
+                            if (a.status === 'finished' && b.status !== 'finished') return -1;
+                            if (a.status !== 'finished' && b.status === 'finished') return 1;
+                            if (a.status === 'finished' && b.status === 'finished') {
+                              return a.steps - b.steps; // Fewer steps is better
+                            }
+                            return b.steps - a.steps; // Survived longer is better
+                          })
+                          .map((r, index) => {
+                            const isWin = r.status === 'finished';
+                            const badgeBg = isWin ? 'rgba(35, 134, 54, 0.2)' : 'rgba(218, 54, 51, 0.2)';
+                            const badgeColor = isWin ? '#58a6ff' : '#f85149';
+                            const rowBg = index === 0 && isWin ? 'rgba(217, 180, 0, 0.08)' : 'transparent';
+                            const medal = index === 0 && isWin ? '🥇 ' : (index === 1 && isWin ? '🥈 ' : (index === 2 && isWin ? '🥉 ' : ''));
+                            
+                            return (
+                              <tr key={r.id} style={{ borderBottom: '1px solid rgba(255, 255, 255, 0.05)', background: rowBg }}>
+                                <td style={{ padding: '8px 4px', textAlign: 'center', fontWeight: 'bold', color: index === 0 && isWin ? '#fbbf24' : '#c9d1d9' }}>
+                                  {index + 1}
+                                </td>
+                                <td style={{ padding: '8px 8px', color: '#ffffff', fontWeight: 'bold' }}>
+                                  {medal}{r.name}
+                                </td>
+                                <td style={{ padding: '8px 8px', color: '#c9d1d9', fontSize: '11.5px' }}>
+                                  {r.model}
+                                </td>
+                                <td style={{ padding: '8px 8px', textAlign: 'center' }}>
+                                  <span style={{
+                                    background: badgeBg,
+                                    color: badgeColor,
+                                    border: `1px solid ${badgeColor}44`,
+                                    padding: '2px 6px',
+                                    borderRadius: '4px',
+                                    fontSize: '10px',
+                                    fontWeight: 'bold',
+                                    textTransform: 'uppercase'
+                                  }}>
+                                    {isWin ? '🏁 BİTİRDİ' : '💥 ELENDİ'}
+                                  </span>
+                                </td>
+                                <td style={{ padding: '8px 8px', textAlign: 'right', color: '#58a6ff' }}>
+                                  {r.steps}
+                                </td>
+                                <td style={{ padding: '8px 8px', textAlign: 'right', color: r.reward >= 0 ? '#56d364' : '#f85149', fontWeight: 'bold' }}>
+                                  {r.reward >= 0 ? `+${r.reward.toFixed(0)}` : r.reward.toFixed(0)}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                      </tbody>
+                    </table>
                   </div>
                 </div>
-                <div style={{ width: '1px', background: 'rgba(255, 255, 255, 0.1)' }} />
-                <div>
-                  <div style={{ fontSize: '11px', color: '#8b949e', textTransform: 'uppercase', letterSpacing: '1px' }}>Toplam Ödül</div>
-                  <div style={{ fontSize: '20px', fontWeight: 'bold', color: modalState.reward >= 0 ? '#3fb950' : '#f85149', marginTop: '4px' }}>
-                    {modalState.reward ? modalState.reward.toFixed(1) : '0.0'}
+              ) : (
+                /* Stats Box */
+                <div style={{
+                  display: 'flex',
+                  justifyContent: 'space-around',
+                  background: 'rgba(255, 255, 255, 0.05)',
+                  borderRadius: '8px',
+                  padding: '15px',
+                  marginBottom: '25px',
+                  border: '1px solid rgba(255, 255, 255, 0.1)'
+                }}>
+                  <div>
+                    <div style={{ fontSize: '11px', color: '#8b949e', textTransform: 'uppercase', letterSpacing: '1px' }}>Toplam Adım</div>
+                    <div style={{ fontSize: '20px', fontWeight: 'bold', color: '#38bdf8', marginTop: '4px' }}>
+                      {modalState.steps}
+                    </div>
+                  </div>
+                  <div style={{ width: '1px', background: 'rgba(255, 255, 255, 0.1)' }} />
+                  <div>
+                    <div style={{ fontSize: '11px', color: '#8b949e', textTransform: 'uppercase', letterSpacing: '1px' }}>Toplam Ödül</div>
+                    <div style={{ fontSize: '20px', fontWeight: 'bold', color: (typeof modalState.reward === 'number' ? modalState.reward >= 0 : modalState.type === 'success') ? '#3fb950' : '#f85149', marginTop: '4px' }}>
+                      {typeof modalState.reward === 'number' ? modalState.reward.toFixed(1) : (modalState.reward || '—')}
+                    </div>
                   </div>
                 </div>
-              </div>
+              )}
 
               <button
                 onClick={() => setModalState({ show: false, type: 'success' })}

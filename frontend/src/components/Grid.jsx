@@ -1,7 +1,7 @@
 // src/components/Grid.jsx
 import Cell from './Cell';
 
-function Grid({ grid, onCellClick, size, center, indexToCoord, activeMode }) {
+function Grid({ grid, onCellClick, size, center, indexToCoord, activeMode, racerModels = [], agentShieldTriggered, racerShields }) {
   return (
     <div className="grid-wrapper">
       <div className="grid-scene">
@@ -36,6 +36,9 @@ function Grid({ grid, onCellClick, size, center, indexToCoord, activeMode }) {
                     isXAxis={isXAxis}
                     isYAxis={isYAxis}
                     activeMode={activeMode}
+                    racerModels={racerModels}
+                    agentShieldTriggered={agentShieldTriggered}
+                    racerShields={racerShields}
                   />
                 );
               })

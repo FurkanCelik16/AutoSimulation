@@ -1,7 +1,7 @@
 // src/components/Simulation3D.jsx
 import React, { useRef, useMemo, useState, Suspense } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
-import { OrbitControls, Sky, useGLTF } from '@react-three/drei';
+import { OrbitControls, Sky, useGLTF, Html } from '@react-three/drei';
 import { EffectComposer, Bloom, Vignette } from '@react-three/postprocessing';
 import * as THREE from 'three';
 
@@ -1372,7 +1372,7 @@ const TrafficLight3D = ({ position, isGreen, theme = 'city' }) => {
 };
 
 // Realistic Agent (Self-driving Ferrari or procedural AMR cargo carrier or Martian space rover or medical dispenser capsule)
-const Agent3D = ({ position, lastAction, smoothCarPosRef, simSpeed = 450, theme = 'city' }) => {
+const Agent3D = ({ position, lastAction, smoothCarPosRef, simSpeed = 450, theme = 'city', carColor = '#00ffff', racerLabel = 'AI AGENT' }) => {
   const agentRef = useRef();
   
   const { scene } = useGLTF('https://cdn.jsdelivr.net/gh/mrdoob/three.js@dev/examples/models/gltf/ferrari.glb');
@@ -1400,10 +1400,18 @@ const Agent3D = ({ position, lastAction, smoothCarPosRef, simSpeed = 450, theme 
         if (child.name.toLowerCase().includes('wheel')) {
           wheelsRef.current.push(child);
         }
+        
+        // Ferrari body paint ve metal parçalarını özel araç rengimiz ile boya
+        if (child.name.toLowerCase().includes('body') || child.name.toLowerCase().includes('paint')) {
+          if (child.material) {
+            child.material = child.material.clone();
+            child.material.color.set(carColor);
+          }
+        }
       }
     });
     return clone;
-  }, [scene, theme]);
+  }, [scene, theme, carColor]);
 
   if (lastAction) {
     switch (lastAction.action_label) {
@@ -1462,14 +1470,31 @@ const Agent3D = ({ position, lastAction, smoothCarPosRef, simSpeed = 450, theme 
   });
 
   const neonColor = useMemo(() => {
-    if (theme === 'warehouse') return '#00ffaa'; // glowing cyan-green for warehouse
-    if (theme === 'mars') return '#ff5500'; // neon orange underglow
-    if (theme === 'hospital') return '#00ffff'; // neon teal for clinic
-    return '#00ffff'; // city cyan
-  }, [theme]);
+    return carColor;
+  }, [carColor]);
 
   return (
     <group ref={agentRef}>
+      {/* 3D Floating Name Label */}
+      <Html distanceFactor={4} position={[0, 0.65, 0]} center>
+        <div style={{
+          background: 'rgba(15, 23, 42, 0.9)',
+          border: `1px solid ${carColor}`,
+          boxShadow: `0 0 10px ${carColor}`,
+          color: '#ffffff',
+          padding: '2px 8px',
+          borderRadius: '4px',
+          fontSize: '9px',
+          fontFamily: 'monospace',
+          fontWeight: 'bold',
+          whiteSpace: 'nowrap',
+          pointerEvents: 'none',
+          textShadow: '0 0 4px #000'
+        }}>
+          {racerLabel}
+        </div>
+      </Html>
+
       {/* Dynamic neon underglow plane staying flat on concrete */}
       {theme !== 'mars' && (
         <mesh position={[0, 0.01, 0]} rotation={[-Math.PI / 2, 0, 0]}>
@@ -2967,7 +2992,7 @@ const LiDARBeams = ({ agentPos, calculatedRays }) => {
 };
 
 // ─── CAMERA MANAGER (SMOOTH CHASE & FIRST PERSON VIEWPORTS) ───
-const CameraController = ({ cameraMode, agent3DPos, lastAction, smoothCarPosRef }) => {
+const CameraController = ({ cameraMode, agent3DPos, lastAction, smoothCarPosRef, raceMode, racer1Pos3D, racer2Pos3D, activeRacers3D }) => {
   const { camera } = useThree();
   const currentAngleRef = useRef(0);
   const currentLookAtRef = useRef(null);
@@ -2980,7 +3005,30 @@ const CameraController = ({ cameraMode, agent3DPos, lastAction, smoothCarPosRef 
   useFrame((state, delta) => {
     // Read directly from the physical car position if available for locked-in tracking
     let targetPos = null;
-    if (smoothCarPosRef && smoothCarPosRef.current && smoothCarPosRef.current.lengthSq() > 0) {
+    if (raceMode) {
+      if (activeRacers3D && activeRacers3D.length > 0) {
+        let sumX = 0, sumY = 0, sumZ = 0;
+        let count = 0;
+        activeRacers3D.forEach(r => {
+          if (r.pos3D) {
+            sumX += r.pos3D[0];
+            sumY += r.pos3D[1];
+            sumZ += r.pos3D[2];
+            count++;
+          }
+        });
+        if (count > 0) {
+          targetPos = new THREE.Vector3(sumX / count, sumY / count, sumZ / count);
+        }
+      }
+      if (!targetPos && racer1Pos3D && racer2Pos3D) {
+        targetPos = new THREE.Vector3(
+          (racer1Pos3D[0] + racer2Pos3D[0]) / 2,
+          (racer1Pos3D[1] + racer2Pos3D[1]) / 2,
+          (racer1Pos3D[2] + racer2Pos3D[2]) / 2
+        );
+      }
+    } else if (smoothCarPosRef && smoothCarPosRef.current && smoothCarPosRef.current.lengthSq() > 0) {
       targetPos = smoothCarPosRef.current;
     } else if (agent3DPosRef.current) {
       targetPos = new THREE.Vector3(...agent3DPosRef.current);
@@ -3094,7 +3142,7 @@ const CameraController = ({ cameraMode, agent3DPos, lastAction, smoothCarPosRef 
 
 // ─── MAIN 3D SIMULATOR COMPONENT ───
 
-export default function Simulation3D({ size, baseGrid, agentPos, goalPos, waypoints = [], currentWaypointIndex = 0, trafficLights = [], lightsGreen = false, dynamicObstacles, lastAction, simSpeed = 450, theme = 'city' }) {
+export default function Simulation3D({ size, baseGrid, agentPos, goalPos, waypoints = [], currentWaypointIndex = 0, trafficLights = [], lightsGreen = false, dynamicObstacles, lastAction, simSpeed = 450, theme = 'city', raceMode = false, racer1Pos = null, racer2Pos = null, racer1LastAction = null, racer2LastAction = null, racer1Model = '', racer2Model = '', racerPositions = null, racerLastActions = null, racerModels = null }) {
   const [cameraMode, setCameraMode] = useState('orbit');
   const halfGrid = size / 2;
   const smoothCarPosRef = useRef(new THREE.Vector3());
@@ -3226,6 +3274,45 @@ export default function Simulation3D({ size, baseGrid, agentPos, goalPos, waypoi
   const agent3DPos = useMemo(() => {
     return agentPos ? to3DCoords(agentPos.row, agentPos.col, 0.01) : null;
   }, [agentPos, size]);
+
+  const racer1Pos3D = useMemo(() => {
+    return racer1Pos ? to3DCoords(racer1Pos.row, racer1Pos.col, 0.012) : null;
+  }, [racer1Pos, size]);
+
+  const racer2Pos3D = useMemo(() => {
+    return racer2Pos ? to3DCoords(racer2Pos.row, racer2Pos.col, 0.012) : null;
+  }, [racer2Pos, size]);
+
+  const activeRacers = useMemo(() => {
+    const list = [];
+    const positions = racerPositions || [racer1Pos, racer2Pos, null, null, null];
+    const models = racerModels || [racer1Model, racer2Model, '', '', ''];
+    const actions = racerLastActions || [racer1LastAction, racer2LastAction, null, null, null];
+
+    for (let i = 0; i < 5; i++) {
+      const pos = positions[i];
+      if (pos && pos.row !== undefined && pos.col !== undefined) {
+        let m = models[i] || '';
+        if (!m || m.trim() === '') {
+          m = `racer${i + 1}`;
+        }
+        list.push({
+          pos,
+          model: m,
+          lastAction: actions[i] || null,
+          id: i
+        });
+      }
+    }
+    return list;
+  }, [racerPositions, racerModels, racerLastActions, racer1Pos, racer2Pos, racer1Model, racer2Model, racer1LastAction, racer2LastAction]);
+
+  const activeRacers3D = useMemo(() => {
+    return activeRacers.map(r => ({
+      ...r,
+      pos3D: to3DCoords(r.pos.row, r.pos.col, 0.012 + r.id * 0.001)
+    }));
+  }, [activeRacers, size]);
 
   const goal3DPos = useMemo(() => {
     return goalPos ? to3DCoords(goalPos.row, goalPos.col, 0.0) : null;
@@ -3537,8 +3624,28 @@ export default function Simulation3D({ size, baseGrid, agentPos, goalPos, waypoi
         ))}
 
         {/* Agent (Self-driving supercar or industrial AMR or Martian Rover or Medical Capsule) */}
-        {agent3DPos && (
-          <Agent3D position={agent3DPos} lastAction={lastAction} smoothCarPosRef={smoothCarPosRef} simSpeed={simSpeed} theme={theme} />
+        {raceMode ? (
+          activeRacers3D.map(r => {
+            const colors = ["#22d3ee", "#fb923c", "#ec4899", "#10b981", "#a855f7"];
+            const labels = ["🔵 1", "🟠 2", "💗 3", "🟢 4", "🟣 5"];
+            const color = colors[r.id % colors.length];
+            const label = labels[r.id % labels.length];
+            return (
+              <Agent3D 
+                key={r.id}
+                position={r.pos3D} 
+                lastAction={r.lastAction} 
+                simSpeed={simSpeed} 
+                theme={theme} 
+                carColor={color} 
+                racerLabel={`${label}: ${r.model.toUpperCase()}`}
+              />
+            );
+          })
+        ) : (
+          agent3DPos && (
+            <Agent3D position={agent3DPos} lastAction={lastAction} smoothCarPosRef={smoothCarPosRef} simSpeed={simSpeed} theme={theme} />
+          )
         )}
 
         {/* Red sports cars / forklift / dust devil / medical staffs (Dynamic Obstacles) */}
@@ -3547,10 +3654,19 @@ export default function Simulation3D({ size, baseGrid, agentPos, goalPos, waypoi
         ))}
 
         {/* LiDAR Lazeri Işınları */}
-        {agent3DPos && <LiDARBeams agentPos={agent3DPos} calculatedRays={calculatedRays} />}
+        {!raceMode && agent3DPos && <LiDARBeams agentPos={agent3DPos} calculatedRays={calculatedRays} />}
 
         {/* Dynamic Camera Controllers */}
-        <CameraController cameraMode={cameraMode} agent3DPos={agent3DPos} lastAction={lastAction} smoothCarPosRef={smoothCarPosRef} />
+        <CameraController 
+          cameraMode={cameraMode} 
+          agent3DPos={agent3DPos} 
+          lastAction={lastAction} 
+          smoothCarPosRef={smoothCarPosRef} 
+          raceMode={raceMode}
+          racer1Pos3D={racer1Pos3D}
+          racer2Pos3D={racer2Pos3D}
+          activeRacers3D={activeRacers3D}
+        />
 
         {/* Orbit Controls (Only active in free orbit mode) */}
         <OrbitControls
