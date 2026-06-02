@@ -849,19 +849,6 @@ export default function App() {
         </div>
         <div className="control-divider" />
 
-        {/* Harita adı input */}
-        <div className="control-group">
-          <input
-            id="map-name-input"
-            className="map-name-input"
-            type="text"
-            defaultValue={mapNameRef.current}
-            onChange={e => { mapNameRef.current = e.target.value.trim() || 'harita1'; }}
-            placeholder="Harita adı"
-            maxLength={32}
-          />
-        </div>
-        <div className="control-divider" />
 
         {/* 🤖 Yapay Zeka Model Seçici (Dropdown) */}
         <div className="control-group">
