@@ -969,53 +969,60 @@ export default function App() {
       if (emptyCells.length >= 2) {
         const startIdx = Math.floor(Math.random() * emptyCells.length);
         const startCell = emptyCells.splice(startIdx, 1)[0];
-        const goalIdx = Math.floor(Math.random() * emptyCells.length);
-        const goalCell = emptyCells[goalIdx];
+        
+        // Başlangıç ve hedefin en az 10 birim (Manhattan mesafesi) uzakta olmasını garanti et
+        const validGoalCells = emptyCells.filter(cell => 
+          (Math.abs(startCell.row - cell.row) + Math.abs(startCell.col - cell.col)) >= 10
+        );
 
-        if (isSolvableBFS(newGrid, startCell, goalCell)) {
-          newGrid[startCell.row][startCell.col] = 'start';
-          newGrid[goalCell.row][goalCell.col] = 'goal';
+        if (validGoalCells.length > 0) {
+          const goalCell = validGoalCells[Math.floor(Math.random() * validGoalCells.length)];
 
-          let numDyn = 0;
-          if (difficulty === 'medium') numDyn = 1;
-          else if (difficulty === 'hard') numDyn = 3;
-          else if (difficulty === 'very-hard') numDyn = 5;
-          else if (difficulty === 'hell') numDyn = 8;
+          if (isSolvableBFS(newGrid, startCell, goalCell)) {
+            newGrid[startCell.row][startCell.col] = 'start';
+            newGrid[goalCell.row][goalCell.col] = 'goal';
 
-          const dynObs = [];
-          const remainingEmpty = [];
-          for (let r = 0; r < size; r++) {
-            for (let c = 0; c < size; c++) {
-              if (newGrid[r][c] === 'empty' && !(r === startCell.row && c === startCell.col) && !(r === goalCell.row && c === goalCell.col)) {
-                remainingEmpty.push({ row: r, col: c });
+            let numDyn = 0;
+            if (difficulty === 'medium') numDyn = 1;
+            else if (difficulty === 'hard') numDyn = 3;
+            else if (difficulty === 'very-hard') numDyn = 5;
+            else if (difficulty === 'hell') numDyn = 8;
+
+            const dynObs = [];
+            const remainingEmpty = [];
+            for (let r = 0; r < size; r++) {
+              for (let c = 0; c < size; c++) {
+                if (newGrid[r][c] === 'empty' && !(r === startCell.row && c === startCell.col) && !(r === goalCell.row && c === goalCell.col)) {
+                  remainingEmpty.push({ row: r, col: c });
+                }
               }
             }
-          }
 
-          for (let i = 0; i < numDyn && remainingEmpty.length > 0; i++) {
-            const idx = Math.floor(Math.random() * remainingEmpty.length);
-            const cell = remainingEmpty.splice(idx, 1)[0];
-            const patterns = ['linear-h', 'linear-v', 'random'];
-            const randPat = patterns[Math.floor(Math.random() * patterns.length)];
-            dynObs.push({
-              id: `dyn-${++dynCounter}`,
-              row: cell.row,
-              col: cell.col,
-              pattern: randPat,
-              direction: 1
-            });
-          }
+            for (let i = 0; i < numDyn && remainingEmpty.length > 0; i++) {
+              const idx = Math.floor(Math.random() * remainingEmpty.length);
+              const cell = remainingEmpty.splice(idx, 1)[0];
+              const patterns = ['linear-h', 'linear-v', 'random'];
+              const randPat = patterns[Math.floor(Math.random() * patterns.length)];
+              dynObs.push({
+                id: `dyn-${++dynCounter}`,
+                row: cell.row,
+                col: cell.col,
+                pattern: randPat,
+                direction: 1
+              });
+            }
 
-          setBaseGrid(newGrid);
-          setDynamicObstacles(dynObs);
-          setStartPos(startCell);
-          setGoalPos(goalCell);
-          setAgentPos(null);
-          setIsMoving(false);
-          setIsTraining(false);
-          setLastAction(null);
-          disconnect();
-          return;
+            setBaseGrid(newGrid);
+            setDynamicObstacles(dynObs);
+            setStartPos(startCell);
+            setGoalPos(goalCell);
+            setAgentPos(null);
+            setIsMoving(false);
+            setIsTraining(false);
+            setLastAction(null);
+            disconnect();
+            return;
+          }
         }
       }
     }
@@ -1513,7 +1520,7 @@ export default function App() {
             <option value="medium">🟡 Orta (1 Dinamik)</option>
             <option value="hard">🟠 Zor (3 Dinamik)</option>
             <option value="very-hard">🔴 Çok Zor (5 Dinamik)</option>
-            <option value="hell">🔥 Cehennem knk (8 Dinamik)</option>
+            <option value="hell">🔥 Uzman (8 Dinamik)</option>
           </select>
         </div>
         <div className="control-divider" />
