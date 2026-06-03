@@ -278,8 +278,8 @@ async def get_models():
                 key = f.replace(".pth", "")
                 # Determine model type from filename
                 if "a2c" in key.lower() or "a3c" in key.lower():
-                    model_type = "A3C"
-                    name = f"A3C ({key})"
+                    model_type = "A2C"
+                    name = f"A2C ({key})"
                 else:
                     model_type = "DQN"
                     name = f"DQN ({key})"
@@ -397,7 +397,7 @@ async def select_model(req: SelectModelRequest):
             agent.load(MODEL_PATH)
             
         print(f"[DYNAMIC CHANGE] Model değişimi başarılı! Aktif model: {req.model_key}")
-        model_type_str = "SAC" if IS_SAC else ("A2C" if IS_A2C else ("PPO" if IS_PPO else "DQN"))
+        model_type_str = "SAC" if IS_SAC else ("A2C" if (IS_A2C or IS_A3C) else ("PPO" if IS_PPO else "DQN"))
         return {
             "status": "success",
             "active_model": req.model_key,
@@ -1213,7 +1213,7 @@ def load_model_by_key(model_key: str):
         agent_obj = A3CAgent(state_size=state_size, action_size=action_size, hidden_size=hidden_size)
         agent_obj.network.load_state_dict(checkpoint["network_state"])
         agent_obj.episode_count = checkpoint.get("episode_count", 0)
-        return {"agent": agent_obj, "type": "A3C", "state_size": state_size}
+        return {"agent": agent_obj, "type": "A2C", "state_size": state_size}
     else: # DQN
         from agent.dql_agent import DQLAgent
         checkpoint = torch.load(model_path, map_location="cpu", weights_only=False)
