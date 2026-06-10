@@ -99,7 +99,7 @@ DEFAULT_SIZE = 15
 
 # PPO, DQN, A2C, SAC (SB3) modelini otomatik olarak tespit et ve yükle
 IS_SAC = "sac" in MODEL_PATH.lower()
-IS_A2C = (MODEL_PATH.endswith(".zip") and not IS_SAC) or "a2c" in MODEL_PATH.lower()
+IS_A2C = (MODEL_PATH.endswith(".zip") and not IS_SAC) or (os.path.isdir(MODEL_PATH) and os.path.exists(os.path.join(MODEL_PATH, "data")) and "a2c" in MODEL_PATH.lower())
 IS_PPO = (os.path.exists(os.path.join(MODEL_PATH, "policy.pth")) or "ppo" in MODEL_PATH.lower()) and not IS_SAC and not IS_A2C
 
 # Dynamic view radius mapping for different PPO models
@@ -1213,7 +1213,7 @@ def load_model_by_key(model_key: str):
         agent_obj = A3CAgent(state_size=state_size, action_size=action_size, hidden_size=hidden_size)
         agent_obj.network.load_state_dict(checkpoint["network_state"])
         agent_obj.episode_count = checkpoint.get("episode_count", 0)
-        return {"agent": agent_obj, "type": "A2C", "state_size": state_size}
+        return {"agent": agent_obj, "type": "A3C", "state_size": state_size}
     else: # DQN
         from agent.dql_agent import DQLAgent
         checkpoint = torch.load(model_path, map_location="cpu", weights_only=False)

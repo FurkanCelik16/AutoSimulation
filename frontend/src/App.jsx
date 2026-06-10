@@ -71,6 +71,16 @@ export default function App() {
     return grid;
   });
   const [theme, setTheme] = useState('city'); // 'city' | 'warehouse' | 'mars'
+  const [appTheme, setAppTheme] = useState(() => {
+    return localStorage.getItem('appTheme') || 'dark';
+  });
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', appTheme);
+    localStorage.setItem('appTheme', appTheme);
+  }, [appTheme]);
+
+  const isLight = appTheme === 'light';
 
   const themeLabels = {
     city: {
@@ -1119,9 +1129,9 @@ export default function App() {
 
       {/* 🏁 Yarış Modu Paneli */}
       <div style={{
-        background: 'linear-gradient(135deg, #1e293b 0%, #0f172a 100%)',
-        border: '1px solid #334155',
-        boxShadow: '0 4px 20px rgba(0, 0, 0, 0.25)',
+        background: isLight ? '#ffffff' : 'linear-gradient(135deg, #1e293b 0%, #0f172a 100%)',
+        border: isLight ? '1px solid #cbd5e1' : '1px solid #334155',
+        boxShadow: isLight ? '0 4px 20px rgba(0, 0, 0, 0.05)' : '0 4px 20px rgba(0, 0, 0, 0.25)',
         borderRadius: '12px',
         padding: '16px 20px',
         maxWidth: '1200px',
@@ -1136,10 +1146,10 @@ export default function App() {
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <span style={{ fontSize: '24px' }}>🏁</span>
             <div>
-              <h2 style={{ margin: 0, fontSize: '18px', color: '#f1f5f9', fontWeight: 'bold' }}>
+              <h2 style={{ margin: 0, fontSize: '18px', color: isLight ? '#0f172a' : '#f1f5f9', fontWeight: 'bold' }}>
                 AJAN YARIŞI
               </h2>
-              <p style={{ margin: 0, fontSize: '12px', color: '#94a3b8' }}>
+              <p style={{ margin: 0, fontSize: '12px', color: isLight ? '#475569' : '#94a3b8' }}>
                 5 farklı otonom sürüş modelini aynı pistte yarıştırın! Ajanlar birbirini dinamik engel olarak görüp kaçınacaktır.
               </p>
             </div>
@@ -1177,14 +1187,14 @@ export default function App() {
             display: 'grid',
             gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
             gap: '16px',
-            background: 'rgba(15, 23, 42, 0.6)',
+            background: isLight ? 'rgba(226, 232, 240, 0.6)' : 'rgba(15, 23, 42, 0.6)',
             padding: '14px',
             borderRadius: '10px',
-            border: '1px solid #334155'
+            border: isLight ? '1px solid #cbd5e1' : '1px solid #334155'
           }}>
             {/* Racer 1 */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-              <label style={{ color: '#cbd5e1', fontWeight: 'bold', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+              <label style={{ color: isLight ? '#475569' : '#cbd5e1', fontWeight: 'bold', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '4px' }}>
                 🔵 Racer 1
               </label>
               <select
@@ -1197,12 +1207,12 @@ export default function App() {
                   WebkitAppearance: 'none',
                   MozAppearance: 'none',
                   width: '100%',
-                  background: '#1e293b',
-                  color: '#cbd5e1',
-                  border: '1px solid #334155',
+                  backgroundColor: isLight ? '#ffffff' : '#1e293b',
+                  color: isLight ? '#0f172a' : '#cbd5e1',
+                  border: isLight ? '1px solid #cbd5e1' : '1px solid #334155',
                   borderRadius: '6px',
                   padding: '6px 28px 6px 10px',
-                  backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23cbd5e1' d='M6 8L1 3h10z'/%3E%3C/svg%3E")`,
+                  backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='${isLight ? '%230f172a' : '%23cbd5e1'}' d='M6 8L1 3h10z'/%3E%3C/svg%3E")`,
                   backgroundRepeat: 'no-repeat',
                   backgroundPosition: 'right 10px center',
                   fontWeight: 'bold',
@@ -1210,9 +1220,9 @@ export default function App() {
                   cursor: 'pointer'
                 }}
               >
-                <option value="" style={{ background: '#0f172a', color: '#888' }}>— DEVRE DIŞI —</option>
+                <option value="" style={{ background: isLight ? '#ffffff' : '#0f172a', color: '#888' }}>— DEVRE DIŞI —</option>
                 {availableModels.map(m => (
-                  <option key={m.key} value={m.key} style={{ background: '#0f172a', color: '#fff' }}>
+                  <option key={m.key} value={m.key} style={{ background: isLight ? '#ffffff' : '#0f172a', color: isLight ? '#0f172a' : '#fff' }}>
                     {m.type} - {m.key.toUpperCase()}
                   </option>
                 ))}
@@ -1221,7 +1231,7 @@ export default function App() {
 
             {/* Racer 2 */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-              <label style={{ color: '#cbd5e1', fontWeight: 'bold', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+              <label style={{ color: isLight ? '#475569' : '#cbd5e1', fontWeight: 'bold', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '4px' }}>
                 🟠 Racer 2
               </label>
               <select
@@ -1234,12 +1244,12 @@ export default function App() {
                   WebkitAppearance: 'none',
                   MozAppearance: 'none',
                   width: '100%',
-                  background: '#1e293b',
-                  color: '#cbd5e1',
-                  border: '1px solid #334155',
+                  backgroundColor: isLight ? '#ffffff' : '#1e293b',
+                  color: isLight ? '#0f172a' : '#cbd5e1',
+                  border: isLight ? '1px solid #cbd5e1' : '1px solid #334155',
                   borderRadius: '6px',
                   padding: '6px 28px 6px 10px',
-                  backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23cbd5e1' d='M6 8L1 3h10z'/%3E%3C/svg%3E")`,
+                  backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='${isLight ? '%230f172a' : '%23cbd5e1'}' d='M6 8L1 3h10z'/%3E%3C/svg%3E")`,
                   backgroundRepeat: 'no-repeat',
                   backgroundPosition: 'right 10px center',
                   fontWeight: 'bold',
@@ -1247,9 +1257,9 @@ export default function App() {
                   cursor: 'pointer'
                 }}
               >
-                <option value="" style={{ background: '#0f172a', color: '#888' }}>— DEVRE DIŞI —</option>
+                <option value="" style={{ background: isLight ? '#ffffff' : '#0f172a', color: '#888' }}>— DEVRE DIŞI —</option>
                 {availableModels.map(m => (
-                  <option key={m.key} value={m.key} style={{ background: '#0f172a', color: '#fff' }}>
+                  <option key={m.key} value={m.key} style={{ background: isLight ? '#ffffff' : '#0f172a', color: isLight ? '#0f172a' : '#fff' }}>
                     {m.type} - {m.key.toUpperCase()}
                   </option>
                 ))}
@@ -1258,7 +1268,7 @@ export default function App() {
 
             {/* Racer 3 */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-              <label style={{ color: '#cbd5e1', fontWeight: 'bold', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+              <label style={{ color: isLight ? '#475569' : '#cbd5e1', fontWeight: 'bold', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '4px' }}>
                 🟡 Racer 3
               </label>
               <select
@@ -1271,12 +1281,12 @@ export default function App() {
                   WebkitAppearance: 'none',
                   MozAppearance: 'none',
                   width: '100%',
-                  background: '#1e293b',
-                  color: '#cbd5e1',
-                  border: '1px solid #334155',
+                  backgroundColor: isLight ? '#ffffff' : '#1e293b',
+                  color: isLight ? '#0f172a' : '#cbd5e1',
+                  border: isLight ? '1px solid #cbd5e1' : '1px solid #334155',
                   borderRadius: '6px',
                   padding: '6px 28px 6px 10px',
-                  backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23cbd5e1' d='M6 8L1 3h10z'/%3E%3C/svg%3E")`,
+                  backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='${isLight ? '%230f172a' : '%23cbd5e1'}' d='M6 8L1 3h10z'/%3E%3C/svg%3E")`,
                   backgroundRepeat: 'no-repeat',
                   backgroundPosition: 'right 10px center',
                   fontWeight: 'bold',
@@ -1284,9 +1294,9 @@ export default function App() {
                   cursor: 'pointer'
                 }}
               >
-                <option value="" style={{ background: '#0f172a', color: '#888' }}>— DEVRE DIŞI —</option>
+                <option value="" style={{ background: isLight ? '#ffffff' : '#0f172a', color: '#888' }}>— DEVRE DIŞI —</option>
                 {availableModels.map(m => (
-                  <option key={m.key} value={m.key} style={{ background: '#0f172a', color: '#fff' }}>
+                  <option key={m.key} value={m.key} style={{ background: isLight ? '#ffffff' : '#0f172a', color: isLight ? '#0f172a' : '#fff' }}>
                     {m.type} - {m.key.toUpperCase()}
                   </option>
                 ))}
@@ -1295,7 +1305,7 @@ export default function App() {
 
             {/* Racer 4 */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-              <label style={{ color: '#cbd5e1', fontWeight: 'bold', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+              <label style={{ color: isLight ? '#475569' : '#cbd5e1', fontWeight: 'bold', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '4px' }}>
                 🟢 Racer 4
               </label>
               <select
@@ -1308,12 +1318,12 @@ export default function App() {
                   WebkitAppearance: 'none',
                   MozAppearance: 'none',
                   width: '100%',
-                  background: '#1e293b',
-                  color: '#cbd5e1',
-                  border: '1px solid #334155',
+                  backgroundColor: isLight ? '#ffffff' : '#1e293b',
+                  color: isLight ? '#0f172a' : '#cbd5e1',
+                  border: isLight ? '1px solid #cbd5e1' : '1px solid #334155',
                   borderRadius: '6px',
                   padding: '6px 28px 6px 10px',
-                  backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23cbd5e1' d='M6 8L1 3h10z'/%3E%3C/svg%3E")`,
+                  backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='${isLight ? '%230f172a' : '%23cbd5e1'}' d='M6 8L1 3h10z'/%3E%3C/svg%3E")`,
                   backgroundRepeat: 'no-repeat',
                   backgroundPosition: 'right 10px center',
                   fontWeight: 'bold',
@@ -1321,9 +1331,9 @@ export default function App() {
                   cursor: 'pointer'
                 }}
               >
-                <option value="" style={{ background: '#0f172a', color: '#888' }}>— DEVRE DIŞI —</option>
+                <option value="" style={{ background: isLight ? '#ffffff' : '#0f172a', color: '#888' }}>— DEVRE DIŞI —</option>
                 {availableModels.map(m => (
-                  <option key={m.key} value={m.key} style={{ background: '#0f172a', color: '#fff' }}>
+                  <option key={m.key} value={m.key} style={{ background: isLight ? '#ffffff' : '#0f172a', color: isLight ? '#0f172a' : '#fff' }}>
                     {m.type} - {m.key.toUpperCase()}
                   </option>
                 ))}
@@ -1332,7 +1342,7 @@ export default function App() {
 
             {/* Racer 5 */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-              <label style={{ color: '#cbd5e1', fontWeight: 'bold', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+              <label style={{ color: isLight ? '#475569' : '#cbd5e1', fontWeight: 'bold', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '4px' }}>
                 🟣 Racer 5
               </label>
               <select
@@ -1345,12 +1355,12 @@ export default function App() {
                   WebkitAppearance: 'none',
                   MozAppearance: 'none',
                   width: '100%',
-                  background: '#1e293b',
-                  color: '#cbd5e1',
-                  border: '1px solid #334155',
+                  backgroundColor: isLight ? '#ffffff' : '#1e293b',
+                  color: isLight ? '#0f172a' : '#cbd5e1',
+                  border: isLight ? '1px solid #cbd5e1' : '1px solid #334155',
                   borderRadius: '6px',
                   padding: '6px 28px 6px 10px',
-                  backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23cbd5e1' d='M6 8L1 3h10z'/%3E%3C/svg%3E")`,
+                  backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='${isLight ? '%230f172a' : '%23cbd5e1'}' d='M6 8L1 3h10z'/%3E%3C/svg%3E")`,
                   backgroundRepeat: 'no-repeat',
                   backgroundPosition: 'right 10px center',
                   fontWeight: 'bold',
@@ -1358,9 +1368,9 @@ export default function App() {
                   cursor: 'pointer'
                 }}
               >
-                <option value="" style={{ background: '#0f172a', color: '#888' }}>— DEVRE DIŞI —</option>
+                <option value="" style={{ background: isLight ? '#ffffff' : '#0f172a', color: '#888' }}>— DEVRE DIŞI —</option>
                 {availableModels.map(m => (
-                  <option key={m.key} value={m.key} style={{ background: '#0f172a', color: '#fff' }}>
+                  <option key={m.key} value={m.key} style={{ background: isLight ? '#ffffff' : '#0f172a', color: isLight ? '#0f172a' : '#fff' }}>
                     {m.type} - {m.key.toUpperCase()}
                   </option>
                 ))}
@@ -1369,11 +1379,11 @@ export default function App() {
 
             {/* Race Tracks */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-              <label style={{ color: '#cbd5e1', fontWeight: 'bold', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+              <label style={{ color: isLight ? '#475569' : '#cbd5e1', fontWeight: 'bold', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '4px' }}>
                 🏁 Yarış Pisti:
               </label>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <span style={{ fontSize: '12.5px', color: '#cbd5e1', fontWeight: 'bold', minWidth: '100px' }}>
+                <span style={{ fontSize: '12.5px', color: isLight ? '#0f172a' : '#cbd5e1', fontWeight: 'bold', minWidth: '100px' }}>
                   Aktif: <span style={{ color: '#38bdf8' }}>{
                     selectedTrack ? `Pist ${selectedTrack.replace('track', '')}` : 'Pist 1'
                   }</span>
@@ -1437,13 +1447,13 @@ export default function App() {
               appearance: 'none',
               WebkitAppearance: 'none',
               MozAppearance: 'none',
-              background: 'linear-gradient(135deg, #1e293b 0%, #0f172a 100%)',
-              color: '#c9d1d9',
-              border: '1px solid #30363d',
-              boxShadow: '0 0 10px rgba(255, 255, 255, 0.05)',
+              backgroundColor: isLight ? '#ffffff' : '#1e293b',
+              color: isLight ? '#0f172a' : '#c9d1d9',
+              border: isLight ? '1px solid #cbd5e1' : '1px solid #30363d',
+              boxShadow: isLight ? 'none' : '0 0 10px rgba(255, 255, 255, 0.05)',
               borderRadius: '6px',
               padding: '6px 28px 6px 12px',
-              backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23c9d1d9' d='M6 8L1 3h10z'/%3E%3C/svg%3E")`,
+              backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='${isLight ? '%230f172a' : '%23c9d1d9'}' d='M6 8L1 3h10z'/%3E%3C/svg%3E")`,
               backgroundRepeat: 'no-repeat',
               backgroundPosition: 'right 10px center',
               cursor: 'pointer',
@@ -1455,7 +1465,7 @@ export default function App() {
               lineHeight: '20px'
             }}
           >
-            {GRID_SIZES.map(s => <option key={s} value={s} style={{ background: '#0f172a', color: '#fff' }}>{s}×{s}</option>)}
+            {GRID_SIZES.map(s => <option key={s} value={s} style={{ background: isLight ? '#ffffff' : '#0f172a', color: isLight ? '#0f172a' : '#fff' }}>{s}×{s}</option>)}
           </select>
         </div>
         <div className="control-divider" />
@@ -1494,12 +1504,12 @@ export default function App() {
               appearance: 'none',
               WebkitAppearance: 'none',
               MozAppearance: 'none',
-              background: '#21262d',
-              color: '#c9d1d9',
-              border: '1px solid #30363d',
+              backgroundColor: isLight ? '#ffffff' : '#21262d',
+              color: isLight ? '#0f172a' : '#c9d1d9',
+              border: isLight ? '1px solid #cbd5e1' : '1px solid #30363d',
               borderRadius: '6px',
               padding: '6px 28px 6px 12px',
-              backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23c9d1d9' d='M6 8L1 3h10z'/%3E%3C/svg%3E")`,
+              backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='${isLight ? '%230f172a' : '%23c9d1d9'}' d='M6 8L1 3h10z'/%3E%3C/svg%3E")`,
               backgroundRepeat: 'no-repeat',
               backgroundPosition: 'right 10px center',
               cursor: 'pointer',
@@ -1515,12 +1525,12 @@ export default function App() {
               }
             }}
           >
-            <option value="">🎲 Rastgele...</option>
-            <option value="easy">🟢 Kolay (Statik)</option>
-            <option value="medium">🟡 Orta (1 Dinamik)</option>
-            <option value="hard">🟠 Zor (3 Dinamik)</option>
-            <option value="very-hard">🔴 Çok Zor (5 Dinamik)</option>
-            <option value="hell">🔥 Uzman (8 Dinamik)</option>
+            <option value="" style={{ background: isLight ? '#ffffff' : '#0f172a', color: isLight ? '#0f172a' : '#fff' }}>🎲 Rastgele...</option>
+            <option value="easy" style={{ background: isLight ? '#ffffff' : '#0f172a', color: isLight ? '#0f172a' : '#fff' }}>🟢 Kolay (Statik)</option>
+            <option value="medium" style={{ background: isLight ? '#ffffff' : '#0f172a', color: isLight ? '#0f172a' : '#fff' }}>🟡 Orta (1 Dinamik)</option>
+            <option value="hard" style={{ background: isLight ? '#ffffff' : '#0f172a', color: isLight ? '#0f172a' : '#fff' }}>🟠 Zor (3 Dinamik)</option>
+            <option value="very-hard" style={{ background: isLight ? '#ffffff' : '#0f172a', color: isLight ? '#0f172a' : '#fff' }}>🔴 Çok Zor (5 Dinamik)</option>
+            <option value="hell" style={{ background: isLight ? '#ffffff' : '#0f172a', color: isLight ? '#0f172a' : '#fff' }}>🔥 Uzman (8 Dinamik)</option>
           </select>
         </div>
         <div className="control-divider" />
@@ -1561,6 +1571,44 @@ export default function App() {
         </div>
         <div className="control-divider" />
 
+        {/* ☀️ Arayüz Teması Seçici */}
+        <div className="control-group">
+          <label htmlFor="app-theme-select" style={{ color: '#eab308', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '4px' }}>
+            ☀️ Arayüz:
+          </label>
+          <select
+            id="app-theme-select"
+            className="select-theme btn btn-secondary"
+            value={appTheme}
+            onChange={(e) => setAppTheme(e.target.value)}
+            style={{
+              appearance: 'none',
+              WebkitAppearance: 'none',
+              MozAppearance: 'none',
+              backgroundColor: isLight ? '#ffffff' : '#1e293b',
+              color: isLight ? '#0f172a' : '#fde047',
+              border: isLight ? '1px solid #cbd5e1' : '1px solid #eab308',
+              boxShadow: isLight ? 'none' : '0 0 10px rgba(234, 179, 8, 0.2)',
+              borderRadius: '6px',
+              padding: '6px 28px 6px 12px',
+              backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='${isLight ? '%230f172a' : '%23fde047'}' d='M6 8L1 3h10z'/%3E%3C/svg%3E")`,
+              backgroundRepeat: 'no-repeat',
+              backgroundPosition: 'right 10px center',
+              cursor: 'pointer',
+              fontWeight: 'bold',
+              fontFamily: 'monospace',
+              outline: 'none',
+              transition: 'all 0.3s',
+              height: '34px',
+              lineHeight: '20px'
+            }}
+          >
+            <option value="dark" style={{ background: isLight ? '#ffffff' : '#0f172a', color: isLight ? '#0f172a' : '#fff' }}>🌙 Karanlık</option>
+            <option value="light" style={{ background: isLight ? '#ffffff' : '#0f172a', color: isLight ? '#0f172a' : '#fff' }}>☀️ Aydınlık</option>
+          </select>
+        </div>
+        <div className="control-divider" />
+
         {/* 🗺️ Simülasyon Teması Seçici */}
         <div className="control-group">
           <label htmlFor="theme-select" style={{ color: '#06b6d4', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '4px' }}>
@@ -1575,13 +1623,13 @@ export default function App() {
               appearance: 'none',
               WebkitAppearance: 'none',
               MozAppearance: 'none',
-              background: 'linear-gradient(135deg, #083344 0%, #0f172a 100%)',
-              color: '#22d3ee',
-              border: '1px solid #0891b2',
-              boxShadow: '0 0 10px rgba(8, 145, 178, 0.2)',
+              backgroundColor: isLight ? '#ffffff' : '#083344',
+              color: isLight ? '#0f172a' : '#22d3ee',
+              border: isLight ? '1px solid #cbd5e1' : '1px solid #0891b2',
+              boxShadow: isLight ? 'none' : '0 0 10px rgba(8, 145, 178, 0.2)',
               borderRadius: '6px',
               padding: '6px 28px 6px 12px',
-              backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%2322d3ee' d='M6 8L1 3h10z'/%3E%3C/svg%3E")`,
+              backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='${isLight ? '%230f172a' : '%2322d3ee'}' d='M6 8L1 3h10z'/%3E%3C/svg%3E")`,
               backgroundRepeat: 'no-repeat',
               backgroundPosition: 'right 10px center',
               cursor: 'pointer',
@@ -1593,9 +1641,9 @@ export default function App() {
               lineHeight: '20px'
             }}
           >
-            <option value="city" style={{ background: '#0f172a', color: '#fff' }}>🚗 Şehir</option>
-            <option value="warehouse" style={{ background: '#0f172a', color: '#fff' }}>📦 Depo</option>
-            <option value="mars" style={{ background: '#0f172a', color: '#fff' }}>🚀 Mars</option>
+            <option value="city" style={{ background: isLight ? '#ffffff' : '#0f172a', color: isLight ? '#0f172a' : '#fff' }}>🚗 Şehir</option>
+            <option value="warehouse" style={{ background: isLight ? '#ffffff' : '#0f172a', color: isLight ? '#0f172a' : '#fff' }}>📦 Depo</option>
+            <option value="mars" style={{ background: isLight ? '#ffffff' : '#0f172a', color: isLight ? '#0f172a' : '#fff' }}>🚀 Mars</option>
           </select>
         </div>
         <div className="control-divider" />
@@ -1615,13 +1663,13 @@ export default function App() {
               appearance: 'none',
               WebkitAppearance: 'none',
               MozAppearance: 'none',
-              background: 'linear-gradient(135deg, #1e293b 0%, #0f172a 100%)',
-              color: '#38bdf8',
-              border: '1px solid #0284c7',
-              boxShadow: '0 0 10px rgba(2, 132, 199, 0.2)',
+              backgroundColor: isLight ? '#ffffff' : '#1e293b',
+              color: isLight ? '#0f172a' : '#38bdf8',
+              border: isLight ? '1px solid #cbd5e1' : '1px solid #0284c7',
+              boxShadow: isLight ? 'none' : '0 0 10px rgba(2, 132, 199, 0.2)',
               borderRadius: '6px',
               padding: '6px 28px 6px 12px',
-              backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%2338bdf8' d='M6 8L1 3h10z'/%3E%3C/svg%3E")`,
+              backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='${isLight ? '%230f172a' : '%2338bdf8'}' d='M6 8L1 3h10z'/%3E%3C/svg%3E")`,
               backgroundRepeat: 'no-repeat',
               backgroundPosition: 'right 10px center',
               cursor: 'pointer',
@@ -1634,7 +1682,7 @@ export default function App() {
             }}
           >
             {availableModels.map(m => (
-              <option key={m.key} value={m.key} style={{ background: '#0f172a', color: '#fff' }}>
+              <option key={m.key} value={m.key} style={{ background: isLight ? '#ffffff' : '#0f172a', color: isLight ? '#0f172a' : '#fff' }}>
                 {m.type === 'SAC' ? '🌀 SAC' : (m.type === 'PPO' ? '🤖 PPO' : (m.type === 'A3C' ? '🧠 A3C' : (m.type === 'A2C' ? '🚀 A2C' : '⚙️ DQN')))} - {m.key.toUpperCase()}
               </option>
             ))}
@@ -1677,29 +1725,29 @@ export default function App() {
       {/* Ajan Karar Analitiği Dashboard */}
       {lastAction && !lastAction.error && lastAction.reward !== undefined && lastAction.q_values !== undefined && (
         <div style={{
-          background: 'linear-gradient(135deg, #1e293b 0%, #0f172a 100%)',
-          border: '1px solid #38bdf8',
-          boxShadow: '0 8px 32px rgba(56, 189, 248, 0.15)',
+          background: isLight ? '#ffffff' : 'linear-gradient(135deg, #1e293b 0%, #0f172a 100%)',
+          border: isLight ? '1px solid #cbd5e1' : '1px solid #38bdf8',
+          boxShadow: isLight ? '0 8px 32px rgba(15, 23, 42, 0.08)' : '0 8px 32px rgba(56, 189, 248, 0.15)',
           borderRadius: '10px',
           padding: '10px 14px',
-          color: '#f8fafc',
+          color: isLight ? '#0f172a' : '#f8fafc',
           maxWidth: '480px',
           margin: '10px auto 15px auto',
           fontFamily: "'Outfit', 'Inter', sans-serif"
         }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px', flexWrap: 'wrap', gap: '8px' }}>
-            <h3 style={{ margin: 0, fontSize: '13px', color: '#38bdf8', letterSpacing: '1px' }}>
+            <h3 style={{ margin: 0, fontSize: '13px', color: isLight ? '#2563eb' : '#38bdf8', letterSpacing: '1px' }}>
               🧠 Ajan Karar Analitiği
             </h3>
             <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
               <span style={{
-                background: '#1e293b',
+                background: isLight ? '#f1f5f9' : '#1e293b',
                 padding: '2px 6px',
                 borderRadius: '4px',
                 fontSize: '11px',
-                border: '1px solid #334155'
+                border: isLight ? '1px solid #cbd5e1' : '1px solid #334155'
               }}>
-                Son Yön: <strong style={{ color: '#38bdf8' }}>{
+                Son Yön: <strong style={{ color: isLight ? '#2563eb' : '#38bdf8' }}>{
                   (() => {
                     const val = lastAction.action_label?.toUpperCase();
                     if (val === 'LEFT') return 'SOL (←)';
@@ -1737,22 +1785,22 @@ export default function App() {
                 const isChosen = lastAction.action === idx || (idx === 4 && lastAction.action_label === 'STAY');
                 return (
                   <div key={idx} style={{ display: 'flex', alignItems: 'center', fontSize: '12px' }}>
-                    <div style={{ width: '80px', fontWeight: isChosen ? 'bold' : 'normal', color: isChosen ? '#38bdf8' : '#94a3b8' }}>
+                    <div style={{ width: '80px', fontWeight: isChosen ? 'bold' : 'normal', color: isChosen ? (isLight ? '#2563eb' : '#38bdf8') : (isLight ? '#475569' : '#94a3b8') }}>
                       {labels[idx]}
                     </div>
-                    <div style={{ flex: 1, height: '6px', background: '#334155', borderRadius: '3px', margin: '0 8px', overflow: 'hidden', position: 'relative' }}>
+                    <div style={{ flex: 1, height: '6px', background: isLight ? '#e2e8f0' : '#334155', borderRadius: '3px', margin: '0 8px', overflow: 'hidden', position: 'relative' }}>
                       <div style={{
                         width: `${(prob * 100).toFixed(1)}%`,
                         height: '100%',
-                        background: isChosen ? 'linear-gradient(90deg, #38bdf8, #0ea5e9)' : '#475569',
+                        background: isChosen ? (isLight ? 'linear-gradient(90deg, #2563eb, #3b82f6)' : 'linear-gradient(90deg, #38bdf8, #0ea5e9)') : (isLight ? '#94a3b8' : '#475569'),
                         borderRadius: '3px',
                         transition: 'width 0.3s ease-out'
                       }} />
                     </div>
-                    <div style={{ width: '35px', textAlign: 'right', fontWeight: 'bold', color: isChosen ? '#38bdf8' : '#64748b' }}>
+                    <div style={{ width: '35px', textAlign: 'right', fontWeight: 'bold', color: isChosen ? (isLight ? '#2563eb' : '#38bdf8') : '#64748b' }}>
                       {(prob * 100).toFixed(0)}%
                     </div>
-                    <div style={{ width: '55px', textAlign: 'right', fontSize: '11px', color: '#64748b', fontFamily: 'monospace' }}>
+                    <div style={{ width: '55px', textAlign: 'right', fontSize: '11px', color: isLight ? '#64748b' : '#64748b', fontFamily: 'monospace' }}>
                       ({qVal !== undefined ? qVal.toFixed(2) : '0.00'})
                     </div>
                   </div>
@@ -1853,7 +1901,7 @@ export default function App() {
         <div style={{
           position: 'fixed',
           top: 0, left: 0, right: 0, bottom: 0,
-          background: 'rgba(13, 17, 23, 0.85)',
+          background: isLight ? 'rgba(15, 23, 42, 0.4)' : 'rgba(13, 17, 23, 0.85)',
           backdropFilter: 'blur(8px)',
           display: 'flex',
           justifyContent: 'center',
@@ -1862,13 +1910,17 @@ export default function App() {
           animation: 'fadeIn 0.3s ease-out'
         }}>
           <div style={{
-            background: modalState.type === 'success' ? 'linear-gradient(135deg, #1e291b 0%, #0d1117 100%)' : 'linear-gradient(135deg, #2d1e1e 0%, #0d1117 100%)',
-            border: modalState.type === 'success' ? '2px solid #3fb950' : '2px solid #f85149',
+            background: modalState.type === 'success' 
+              ? (isLight ? 'linear-gradient(135deg, #f0fdf4 0%, #ffffff 100%)' : 'linear-gradient(135deg, #1e291b 0%, #0d1117 100%)')
+              : (isLight ? 'linear-gradient(135deg, #fef2f2 0%, #ffffff 100%)' : 'linear-gradient(135deg, #2d1e1e 0%, #0d1117 100%)'),
+            border: modalState.type === 'success' 
+              ? (isLight ? '2px solid #22c55e' : '2px solid #3fb950')
+              : (isLight ? '2px solid #ef4444' : '2px solid #f85149'),
             borderRadius: '16px',
             padding: '40px',
             width: raceMode ? '560px' : '380px',
             textAlign: 'center',
-            boxShadow: '0 20px 40px rgba(0, 0, 0, 0.6)',
+            boxShadow: isLight ? '0 20px 40px rgba(0, 0, 0, 0.1)' : '0 20px 40px rgba(0, 0, 0, 0.6)',
             animation: 'scaleUp 0.3s cubic-bezier(0.34, 1.56, 0.64, 1)',
             position: 'relative',
             overflow: 'hidden',
@@ -1894,7 +1946,7 @@ export default function App() {
               <h2 style={{
                 fontSize: '32px',
                 margin: '0 0 10px 0',
-                color: modalState.type === 'success' ? '#3fb950' : '#f85149',
+                color: modalState.type === 'success' ? (isLight ? '#16a34a' : '#3fb950') : (isLight ? '#dc2626' : '#f85149'),
                 fontFamily: "'Outfit', 'Inter', sans-serif",
                 textTransform: 'uppercase',
                 letterSpacing: '2px',
@@ -1903,7 +1955,7 @@ export default function App() {
                 {raceMode ? 'YARIŞ TAMAMLANDI!' : (modalState.type === 'success' ? 'HEDEFE ULAŞILDI!' : 'GAME OVER!')}
               </h2>
               <p style={{
-                color: '#8b949e',
+                color: isLight ? '#475569' : '#8b949e',
                 fontSize: '15px',
                 margin: '0 0 20px 0',
                 lineHeight: '1.6'
@@ -1918,21 +1970,21 @@ export default function App() {
               {raceMode ? (
                 /* Premium Race Rankings Table */
                 <div style={{
-                  background: 'rgba(22, 27, 34, 0.8)',
+                  background: isLight ? '#f8fafc' : 'rgba(22, 27, 34, 0.8)',
                   backdropFilter: 'blur(12px)',
-                  border: '1px solid rgba(255, 255, 255, 0.1)',
+                  border: isLight ? '1px solid #cbd5e1' : '1px solid rgba(255, 255, 255, 0.1)',
                   borderRadius: '12px',
                   padding: '16px',
                   marginBottom: '25px',
                   textAlign: 'left'
                 }}>
                   <h3 style={{
-                    color: '#c9d1d9',
+                    color: isLight ? '#0f172a' : '#c9d1d9',
                     fontSize: '14px',
                     textTransform: 'uppercase',
                     letterSpacing: '1.5px',
                     margin: '0 0 12px 0',
-                    borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
+                    borderBottom: isLight ? '1px solid #cbd5e1' : '1px solid rgba(255, 255, 255, 0.1)',
                     paddingBottom: '8px',
                     fontFamily: "'Outfit', sans-serif"
                   }}>
@@ -1942,7 +1994,7 @@ export default function App() {
                   <div style={{ maxHeight: '240px', overflowY: 'auto' }}>
                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12.5px', fontFamily: 'monospace' }}>
                       <thead>
-                        <tr style={{ borderBottom: '1px solid rgba(255, 255, 255, 0.1)', color: '#8b949e' }}>
+                        <tr style={{ borderBottom: isLight ? '1px solid #cbd5e1' : '1px solid rgba(255, 255, 255, 0.1)', color: isLight ? '#475569' : '#8b949e' }}>
                           <th style={{ padding: '6px 4px', textAlign: 'center', width: '30px' }}>#</th>
                           <th style={{ padding: '6px 8px', textAlign: 'left' }}>Yarışçı</th>
                           <th style={{ padding: '6px 8px', textAlign: 'left' }}>Model</th>
@@ -1964,19 +2016,19 @@ export default function App() {
                           .map((r, index) => {
                             const isWin = r.status === 'finished';
                             const badgeBg = isWin ? 'rgba(35, 134, 54, 0.2)' : 'rgba(218, 54, 51, 0.2)';
-                            const badgeColor = isWin ? '#58a6ff' : '#f85149';
-                            const rowBg = index === 0 && isWin ? 'rgba(217, 180, 0, 0.08)' : 'transparent';
+                            const badgeColor = isWin ? (isLight ? '#2563eb' : '#58a6ff') : '#f85149';
+                            const rowBg = index === 0 && isWin ? (isLight ? 'rgba(217, 180, 0, 0.04)' : 'rgba(217, 180, 0, 0.08)') : 'transparent';
                             const medal = index === 0 && isWin ? '🥇 ' : (index === 1 && isWin ? '🥈 ' : (index === 2 && isWin ? '🥉 ' : ''));
                             
                             return (
-                              <tr key={r.id} style={{ borderBottom: '1px solid rgba(255, 255, 255, 0.05)', background: rowBg }}>
-                                <td style={{ padding: '8px 4px', textAlign: 'center', fontWeight: 'bold', color: index === 0 && isWin ? '#fbbf24' : '#c9d1d9' }}>
+                              <tr key={r.id} style={{ borderBottom: isLight ? '1px solid #e2e8f0' : '1px solid rgba(255, 255, 255, 0.05)', background: rowBg }}>
+                                <td style={{ padding: '8px 4px', textAlign: 'center', fontWeight: 'bold', color: index === 0 && isWin ? '#fbbf24' : (isLight ? '#0f172a' : '#c9d1d9') }}>
                                   {index + 1}
                                 </td>
-                                <td style={{ padding: '8px 8px', color: '#ffffff', fontWeight: 'bold' }}>
+                                <td style={{ padding: '8px 8px', color: isLight ? '#0f172a' : '#ffffff', fontWeight: 'bold' }}>
                                   {medal}{r.name}
                                 </td>
-                                <td style={{ padding: '8px 8px', color: '#c9d1d9', fontSize: '11.5px' }}>
+                                <td style={{ padding: '8px 8px', color: isLight ? '#475569' : '#c9d1d9', fontSize: '11.5px' }}>
                                   {r.model}
                                 </td>
                                 <td style={{ padding: '8px 8px', textAlign: 'center' }}>
@@ -1993,10 +2045,10 @@ export default function App() {
                                     {isWin ? '🏁 BİTİRDİ' : '💥 ELENDİ'}
                                   </span>
                                 </td>
-                                <td style={{ padding: '8px 8px', textAlign: 'right', color: '#58a6ff' }}>
+                                <td style={{ padding: '8px 8px', textAlign: 'right', color: isLight ? '#2563eb' : '#58a6ff' }}>
                                   {r.steps}
                                 </td>
-                                <td style={{ padding: '8px 8px', textAlign: 'right', color: r.reward >= 0 ? '#56d364' : '#f85149', fontWeight: 'bold' }}>
+                                <td style={{ padding: '8px 8px', textAlign: 'right', color: r.reward >= 0 ? (isLight ? '#16a34a' : '#56d364') : '#f85149', fontWeight: 'bold' }}>
                                   {r.reward >= 0 ? `+${r.reward.toFixed(0)}` : r.reward.toFixed(0)}
                                 </td>
                               </tr>
@@ -2011,22 +2063,22 @@ export default function App() {
                 <div style={{
                   display: 'flex',
                   justifyContent: 'space-around',
-                  background: 'rgba(255, 255, 255, 0.05)',
+                  background: isLight ? '#f1f5f9' : 'rgba(255, 255, 255, 0.05)',
                   borderRadius: '8px',
                   padding: '15px',
                   marginBottom: '25px',
-                  border: '1px solid rgba(255, 255, 255, 0.1)'
+                  border: isLight ? '1px solid #cbd5e1' : '1px solid rgba(255, 255, 255, 0.1)'
                 }}>
                   <div>
-                    <div style={{ fontSize: '11px', color: '#8b949e', textTransform: 'uppercase', letterSpacing: '1px' }}>Toplam Adım</div>
-                    <div style={{ fontSize: '20px', fontWeight: 'bold', color: '#38bdf8', marginTop: '4px' }}>
+                    <div style={{ fontSize: '11px', color: isLight ? '#475569' : '#8b949e', textTransform: 'uppercase', letterSpacing: '1px' }}>Toplam Adım</div>
+                    <div style={{ fontSize: '20px', fontWeight: 'bold', color: isLight ? '#2563eb' : '#38bdf8', marginTop: '4px' }}>
                       {modalState.steps}
                     </div>
                   </div>
-                  <div style={{ width: '1px', background: 'rgba(255, 255, 255, 0.1)' }} />
+                  <div style={{ width: '1px', background: isLight ? '#cbd5e1' : 'rgba(255, 255, 255, 0.1)' }} />
                   <div>
-                    <div style={{ fontSize: '11px', color: '#8b949e', textTransform: 'uppercase', letterSpacing: '1px' }}>Toplam Ödül</div>
-                    <div style={{ fontSize: '20px', fontWeight: 'bold', color: (typeof modalState.reward === 'number' ? modalState.reward >= 0 : modalState.type === 'success') ? '#3fb950' : '#f85149', marginTop: '4px' }}>
+                    <div style={{ fontSize: '11px', color: isLight ? '#475569' : '#8b949e', textTransform: 'uppercase', letterSpacing: '1px' }}>Toplam Ödül</div>
+                    <div style={{ fontSize: '20px', fontWeight: 'bold', color: (typeof modalState.reward === 'number' ? modalState.reward >= 0 : modalState.type === 'success') ? (isLight ? '#16a34a' : '#3fb950') : '#f85149', marginTop: '4px' }}>
                       {typeof modalState.reward === 'number' ? modalState.reward.toFixed(1) : (modalState.reward || '—')}
                     </div>
                   </div>
@@ -2036,7 +2088,7 @@ export default function App() {
               <button
                 onClick={() => setModalState({ show: false, type: 'success' })}
                 style={{
-                  background: modalState.type === 'success' ? '#238636' : '#da3633',
+                  background: modalState.type === 'success' ? (isLight ? '#16a34a' : '#238636') : (isLight ? '#dc2626' : '#da3633'),
                   color: '#ffffff',
                   border: 'none',
                   borderRadius: '8px',
